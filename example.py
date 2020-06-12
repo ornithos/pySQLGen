@@ -36,14 +36,14 @@ custom_tables['first admission date'] = custom_admission_date
 
 # Construct metadata
 AGGREGATIONS = ['count', 'avg', 'sum', 'max', 'min']
-TRANSFORMATIONS = ['is not null', 'day', 'week', 'month', 'first']
+TRANSFORMATIONS = ['not null', 'day', 'week', 'month', 'first']
 schema = 'public'   # name of schema within DB
 context = DBMetadata(nodes, custom_tables, schema, AGGREGATIONS, TRANSFORMATIONS)
 
 
 # Define options for user selection
 opts_aggregation = (
-    UserOptionAggregation('person', '{alias:s}person_id', ['count'], 'count', Person, context),
+    UserOptionAggregation('person', '{alias:s}person_id', ['count', None], 'count', Person, context),
     UserOptionAggregation('measurement_types', '{alias:s}measurement_concept_id', ['count'],
                           'count', Measurement, context),
     UserOptionAggregation('length_of_stay', '{alias:s}person_id', ['avg'], 'avg', 'custom', context),
@@ -66,10 +66,10 @@ opts_split = (
                                             #      are not part of the schema model?
     UserOptionSplit('care site type', '{alias:s}care_site_name', Care_Site, context),
     UserOptionSplit('death', '{alias:s}death_date', Death, context,
-                    transformations=['is not null', 'day', 'week', 'month'],
-                    default_transformation='is not null'),
+                    transformations=['not null', 'day', 'week', 'month'],
+                    default_transformation='not null'),
 )
 
 
-tmp = construct_query(opts_aggregation[0], opts_split[0], *opts_split[1:])
-print(tmp)
+# tmp = construct_query(opts_aggregation[0], opts_split[0], *opts_split[1:])
+# print(tmp)

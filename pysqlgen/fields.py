@@ -29,7 +29,7 @@ class UserOption:
         self.sql_item = sql_item
         self.field_alias = field_alias
         self.context = context
-        self.transformations = [t.lower() for t in transformations]
+        self.transformations = [None if t is None else t.lower() for t in transformations]
         self.default_transformation = default_transformation
         self.table = table if isinstance(table, SchemaNode) else table.title()
         self._set_transform_type(default_transformation)
@@ -64,9 +64,9 @@ class UserOptionAggregation(UserOption):
 
     def __init__(self, item, sql_item, transformations, default_transformation, table,
                  context, field_alias=None):
-        assert all([t.lower() in context.AGGREGATIONS for t in transformations]), \
-            "Please ensure the transformations are a subset of (" + \
-            ", ".join(context.AGGREGATIONS) + ")."
+        # assert all([t.lower() in context.AGGREGATIONS for t in transformations]), \
+        #     "Please ensure the transformations are a subset of (" + \
+        #     ", ".join(context.AGGREGATIONS) + ")."
         super().__init__(item, sql_item, transformations, default_transformation, table,
                          context, field_alias=field_alias)
 
@@ -109,10 +109,11 @@ def sql_transform(opt, alias=None, dialect="MSSS"):
     name = name.format(alias=alias)
 
     if opt.selected_transform is None:
-        if opt.as_english:
-
-        else:
-            sel = f'{name}' if opt.field_alias is None else f"{name} AS {opt.field_alias}"
+        sel = f'{name}' if opt.field_alias is None else f"{name} AS {opt.field_alias}"
+        # if opt.as_english:
+        #     sel = f'{name}' if opt.field_alias is None else f"{name} AS {opt.field_alias}"
+        # else:
+        #     sel = f'{name}' if opt.field_alias is None else f"{name} AS {opt.field_alias}"
         return sel, ''
 
     dialect = dialect.lower()
@@ -124,9 +125,9 @@ def sql_transform(opt, alias=None, dialect="MSSS"):
     if opt.is_aggregation:
         sel = "{:s}({:s}) AS {:s}".format(t.upper(), name, field_alias)
     elif opt.is_transformation:
-        if t == 'is not null':
-            sel = f'MAX(CASE WHEN {name:s} IS NOT NULL THEN 1 ELSE 0) AS {field_alias}'
-        elif t in ['day', 'year']:
+        if t == 'not null':
+            sel = f'CASE WHEN {name:s} IS NOT NULL THEN 1 ELSE 0 AS {field_alias}'
+        elif t in ['day', 'month', 'year']:
             if dialect == 'msss':
                 sel = f'{t.upper()}({name:s}) AS {field_alias}'
             elif dialect == 'postgres':
@@ -146,7 +147,9 @@ def sql_transform(opt, alias=None, dialect="MSSS"):
             assert table.num_parents() < 2, "can only use 'first' on tables which join to the Person table."
             sel = f'ROW_NUMBER() OVER (PARTITION BY person_id ORDER BY {datefield:s}) AS rn, {name:s}'
             where = 'rn = 1'
+        else:
+            raise KeyError(f'sql_transform: Unknown transformation: {t:s}')
     else:
-        raise KeyError(f'Unknown transformation: {t:s}')
+        raise KeyError(f'Transformation not in list: {t:s}')
 
     return sel, where
