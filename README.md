@@ -24,3 +24,6 @@ Known issues:
 * JOINs will not necessarily follow the shortest path, as the code currently makes no use of constraints. That is a much more heavyweight implementation than I am intending. Hopefully the query optimizer should remove much of the pain here.
 * No attempt is being made for optimality e.g. by refactoring queries to make optimal use of PKs etc.
 * "AS..." aliases retained in the GROUP BY clause. (TO BE FIXED)
+
+
+![Screenshot](assets/screenshot.png)
