@@ -1,6 +1,6 @@
 from collections import UserList, OrderedDict
 from .dbtree import topological_sort
-from .fields import sql_transform, UserOption
+from .fields import UserOption
 import re
 
 class Statement:
@@ -157,18 +157,18 @@ def construct_query(*args, dialect='MSSS'):
     stmt._from.generate_statement();
 
     # === CONSTRUCT SELECT / WHERE ===========
-    has_agg = any([arg.is_aggregation for arg in args])
+    has_agg = any([arg.has_aggregation for arg in args])
 
     for arg in args:
         alias = stmt.aliases[arg.get_table()]
-        sel, where = sql_transform(arg, alias=alias, dialect=dialect)
+        sel, where = arg.sql_transform(alias=alias, dialect=dialect)
         # SELECT
         stmt.select.append(sel)
         # WHERE
         if len(where) > 0:
             stmt.where.append(where)
         # GROUP BY
-        if has_agg and not arg.is_aggregation:
+        if has_agg and not arg.has_aggregation:
             gby = re.sub('AS [a-zA-Z0-9_]+$', '', sel).strip()
             stmt.groupby.append(gby)
 
