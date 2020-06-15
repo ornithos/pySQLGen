@@ -106,6 +106,7 @@ def sql_transform(opt, alias=None, dialect="MSSS"):
     alias = '' if (alias is None or len(alias) == 0) else alias + '.'
 
     name, table, datefield = opt.sql_item, opt.table, opt.table.primary_date_field
+    name_no_tbl_alias = name.format(alias='')
     name = name.format(alias=alias)
 
     if opt.selected_transform is None:
@@ -121,7 +122,7 @@ def sql_transform(opt, alias=None, dialect="MSSS"):
 
     where = ''
     t = opt.selected_transform.lower().strip()
-    field_alias = opt.field_alias if opt.field_alias is not None else name
+    field_alias = opt.field_alias if opt.field_alias is not None else name_no_tbl_alias
     if opt.is_aggregation:
         sel = "{:s}({:s}) AS {:s}".format(t.upper(), name, field_alias)
     elif opt.is_transformation:

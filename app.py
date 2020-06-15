@@ -74,8 +74,8 @@ See the drop-down menus on the left to select your query,
 
 
 # --------- CONSTRUCT APP ---------------------------------------------
-external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
-app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+# external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
+app = dash.Dash(__name__) #, external_stylesheets=external_stylesheets)
 server = app.server
 
 
@@ -141,11 +141,14 @@ def update_output(n_clicks, *args):
         else:
             continue
         t_val, agg_val = args[i*3+1], args[i*3+2]
-        if t_val > 0:
-            t = opt.transformations[t_val-1]
-        elif agg_val > 0:
-            t = opt.transformations[agg_val-1]
-        else:
+        try:    # might be out of range if dropdowns have changed, and hence None.
+            if t_val > 0:
+                t = opt.transformations[t_val-1]
+            elif agg_val > 0:
+                t = opt.transformations[agg_val-1]
+            else:
+                t = None
+        except IndexError:
             t = None
         opt.select_transform(t)
         use_opts.append(opt)
@@ -162,23 +165,40 @@ def _generate_update_dd_trans():
         # we've prepended an additional None element to the variable selector, hence
         # we must treat val==0 differently, and subtract 1 from all other treatments.
         if val == 0:
-            return [{'label': '<None>', 'value': 0}]
+            return [{'label': '<None>', 'value': -1}], True
         else:
             print(val)
             trans = [None, *example.opts_split[val - 1].transformations]
             print(trans)
+            disable = True if len(trans) == 1 else False
+
+            print(disable)
             return [{'label': t, 'value': i} if i > 0 else
-                    {'label': '<None>', 'value': 0} for i, t in enumerate(trans)]
+                    {'label': '<None>', 'value': 0} for i, t in enumerate(trans)], \
+                    disable
+
     return update_dd_trans
 
 
 for i in range(num_secondary):
     update_dd_trans = _generate_update_dd_trans()
-    app.callback(Output(f'dropdown-{i}-trans', 'options'),
+    app.callback([Output(f'dropdown-{i}-trans', 'options'),
+                  Output(f'dropdown-{i}-trans', 'disabled')],
                  [Input(f'dropdown-{i}', 'value')])(update_dd_trans)
 
 
+def _generate_update_dd_agg():
+    def update_dd_agg(val): \
+        return [{'label': '<None>', 'value': -1}], True
 
+    return update_dd_agg
+
+
+for i in range(num_secondary):
+    update_dd_agg = _generate_update_dd_agg()
+    app.callback([Output(f'dropdown-{i}-agg', 'options'),
+                  Output(f'dropdown-{i}-agg', 'disabled')],
+                 [Input(f'dropdown-{i}', 'value')])(update_dd_agg)
 
 
 if __name__ == '__main__':
@@ -202,7 +222,6 @@ GUI:
 * Dropdowns should disappear when there are no options.
 
 SQL Generation
-* GROUP BY retains aliases from `sql_transform` (i.e. foo AS bar)
 * Add "as_english" / join to concept_id table for selected IDs. I think "as_english"
 is wrong, but instead should just specify the Dimension table.
 * transformation --> aggregation via subqueries if necessary.

@@ -1,7 +1,7 @@
 from collections import UserList, OrderedDict
 from .dbtree import topological_sort
 from .fields import sql_transform, UserOption
-
+import re
 
 class Statement:
     """
@@ -169,6 +169,7 @@ def construct_query(*args, dialect='MSSS'):
             stmt.where.append(where)
         # GROUP BY
         if has_agg and not arg.is_aggregation:
-            stmt.groupby.append(sel)
+            gby = re.sub('AS [a-zA-Z0-9_]+$', '', sel).strip()
+            stmt.groupby.append(gby)
 
     return stmt.generate_statement()
