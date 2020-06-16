@@ -1,3 +1,4 @@
+import copy
 from .utils import *
 from .dbtree import *
 from warnings import warn
@@ -116,6 +117,14 @@ class UserOption:
             return '(\n' + self.context.custom_tables[self.item] + '\n)'
         return self.table
 
+    def __copy__(self):
+        obj = type(self).__new__(self.__class__)
+        obj.__dict__.update(self.__dict__)
+        return obj
+
+    def copy(self):
+        return copy.copy(self)
+
     def sql_transform(self, alias=None, dialect="MSSS", coalesce=None):
         """
         A kind of look-up table for transformations such as 'MIN', 'AVG', 'YEAR',
@@ -195,8 +204,11 @@ class UserOption:
                 sel = '{:s}({:s})'.format(a.upper(), sel)
 
         # _____________________ Get field alias ________________________________________
-        field_alias = self.field_alias if self.field_alias is not None \
-            else str_to_fieldname(self.item)
+        if self.field_alias is None:
+            field_alias = str_to_fieldname(self.item)
+            field_alias += '_id' if (self.has_dim_lkp and not self.perform_lkp) else ''
+        else:
+            field_alias = self.field_alias
         if self.has_aggregation and self.field_alias is None:
             field_alias = self.selected_aggregation.lower().strip() + '_' + field_alias
 

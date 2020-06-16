@@ -15,9 +15,9 @@ def app_state_to_opts(args, primary_fields, secondary_fields):
 
         # Get the field that the user has selected (dropdown column 1)
         if i == 0:
-            opt = primary_fields[c_ix]
+            opt = primary_fields[c_ix].copy()
         elif c_ix > 0:
-            opt = secondary_fields[c_ix - 1]
+            opt = secondary_fields[c_ix - 1].copy()
         else:
             continue
 
