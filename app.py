@@ -1,8 +1,8 @@
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
-from pysqlgen.utils import sync_index, get_nth_chunk
 from dash.dependencies import Input, Output, State
+from pysqlgen.apputils import app_state_to_opts
 
 # --------- "GLOBALS" -------------------------------------------------
 main_text_style = {'text-align': 'center', 'max-width': '800px', 'margin': 'auto'}
@@ -21,6 +21,7 @@ primary_fields = example.opts_aggregation
 primary_fields[0].set_aggregation('count')
 secondary_fields = example.opts_split
 debug_ui = True
+print("BEGIN")
 
 # --------- DEFINE INPUT ----------------------------------------------
 dropdown_Primary = dcc.Dropdown(
@@ -150,49 +151,16 @@ for i in range(num_secondary):
               [Input('submit-button', 'n_clicks')],
               all_states)
 def update_output(n_clicks, *args):
-    # tmp = construct_query(opts_aggregation[0], opts_split[0], *opts_split[1:])
-    # print(tmp)
-    use_opts = []
-    chunksizes = [3]
-    chunksizes.extend([4]*num_secondary)
-    for i in range(num_secondary+1):
-        c_args = get_nth_chunk(i, args, chunksizes)
-        c_ix = c_args[0]
-
-        if i == 0:
-            opt = primary_fields[c_ix]
-        elif c_ix > 0:
-            opt = secondary_fields[c_ix - 1]
-        else:
-            continue
-
-        t_val, agg_val = c_args[1], c_args[2]
-        # try/except: might be out of range if dropdowns have changed, and hence None.
-        try:
-            t = opt.transformations[t_val]
-            opt.set_transform(t)
-        except (IndexError, TypeError):
-            opt.set_transform(None)
-        try:
-            a = opt.aggregations[agg_val]
-            opt.set_aggregation(a)
-        except (IndexError, TypeError):
-            opt.set_aggregation(None)
-        print(opt.item)
-        use_opts.append(opt)
+    use_opts, dbg_str = app_state_to_opts(args, primary_fields, secondary_fields)
 
     if len(use_opts) > 0:
+        print(f"Create query with {len(use_opts)} fields selected")
         sql = example.construct_query(*use_opts)
     else:
         sql = "\n\n~~~~ NO VARIABLES SELECTED ~~~~~\n\n"
 
     if debug_ui:
-        raw = []
-        for i in range(1+num_secondary):
-            line = get_nth_chunk(i, args, [3, *[4]*num_secondary])
-            line = ", ".join([str(x) for x in line])
-            raw.append(line)
-        sql += '\n\n\n' + "\n".join(raw)
+        sql += '\n\n\n' + dbg_str
     return html.Pre(sql)
 
 
@@ -226,14 +194,34 @@ def _generate_update_dd(trans_or_agg, fields, has_none_field=False):
             disable = True if ((len(options_list) == 1) and (options_list[0] is None)) \
                 else False
 
-            print(disable)
-            return [{'label': t, 'value': i} if t is not None else
-                    {'label': '<None>', 'value': i} for i, t in enumerate(options_list)],\
-                    value, disable
+            return ([{'label': t, 'value': i} if t is not None else
+                    {'label': '<None>', 'value': i} for i, t in enumerate(options_list)],
+                    value, disable)
 
     return update_dd_trans
 
 
+def _generate_update_check(fields, has_none_field=False):
+    # below, val is the *index* of the selected variable in the LHS dropdown
+    def update_check(val):
+        if val is None or \
+                (has_none_field and val == 0):
+            # Clear dropdowns if:
+            # * User has cleared the Field dropdown using [x]
+            # * No variable is selected via the <None> field.
+            # in this context, we should show nothing / blank out dropdown.
+            return [{'label': '', 'value': 1, 'disabled': True}]
+        else:
+            # val-1 if <none> field exists, o.w. val
+            val = val -1 if has_none_field else val
+            if fields[val].has_dim_lkp:
+                return [{'label': '', 'value': 1, 'disabled': False}]
+            else:
+                return [{'label': '', 'value': 1, 'disabled': True}]
+    return update_check
+
+################################################################################
+# Update secondary transformations
 for i in range(num_secondary):
     update_dd_trans = _generate_update_dd('transformation', secondary_fields,
                                           has_none_field=True)
@@ -242,7 +230,7 @@ for i in range(num_secondary):
                   Output(f'dropdown-{i}-trans', 'disabled')],
                  [Input(f'dropdown-{i}', 'value')])(update_dd_trans)
 
-
+# Update secondary aggregations
 for i in range(num_secondary):
     update_dd_agg = _generate_update_dd('aggregation', secondary_fields,
                                         has_none_field=True)
@@ -251,18 +239,30 @@ for i in range(num_secondary):
                   Output(f'dropdown-{i}-agg', 'disabled')],
                  [Input(f'dropdown-{i}', 'value')])(update_dd_agg)
 
+# Update secondary checklists
+for i in range(num_secondary):
+    update_chk = _generate_update_check(secondary_fields, has_none_field=True)
+    app.callback(Output(f'check-{i}', 'options'),
+                 [Input(f'dropdown-{i}', 'value')])(update_chk)
+
+
+################################################################################
+# Update primary transformation
 update_dd_trans_p = _generate_update_dd('transformation', primary_fields)
 app.callback([Output('dropdown-primary-trans', 'options'),
               Output('dropdown-primary-trans', 'value'),
               Output('dropdown-primary-trans', 'disabled')],
              [Input(f'dropdown-primary', 'value')])(update_dd_trans_p)
 
+# Update primary aggregation
 update_dd_agg_p = _generate_update_dd('aggregation', primary_fields)
 app.callback([Output('dropdown-primary-agg', 'options'),
               Output('dropdown-primary-agg', 'value'),
               Output('dropdown-primary-agg', 'disabled')],
              [Input(f'dropdown-primary', 'value')])(update_dd_agg_p)
 
+
+# --------- RUN APP -------------------------------------------------
 
 if __name__ == '__main__':
     app.run_server(debug=True)
