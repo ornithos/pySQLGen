@@ -11,7 +11,8 @@ Visit_Detail = SchemaNode('Visit_Detail', Person, 'visit_detail_id',
                           ['Care_Site'],
                           ['care_site_id', 'person_id'],
                           'visit_start_date')
-Care_Site = SchemaNode('Care_Site', Visit_Detail, 'care_site_id', [], [], None)
+Care_Site = SchemaNode('Care_Site', Visit_Detail, 'care_site_id', [], [], None,
+                       default_lkp='care_site_name')
 Visit_Occurrence = SchemaNode('Visit_Occurrence', Person, 'visit_occurrence_id',
                               [], ['person_id'],
                               'visit_start_datetime')
@@ -19,7 +20,8 @@ Death = SchemaNode('Death', Person, 'person_id', [], [], 'death_date')
 Measurement = SchemaNode('Measurement', Person, 'person_id', [], [],
                          'measurement_datetime')
 
-Concept = SchemaNode('Concept', None, 'concept_id', [], ['concept_id'], None)
+Concept = SchemaNode('Concept', None, 'concept_id', [], ['concept_id'], None,
+                     default_lkp='concept_name')
 nodes = [Person, Visit_Detail, Care_Site, Visit_Occurrence, Death, Measurement, Concept]
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -56,20 +58,21 @@ opts_split = (
     UserOption('age', '2020 - {alias:s}year_of_birth', Person, context,
                transformations=[None, 'Tens'], field_alias='age'),
     UserOption('sex', '{alias:s}gender_concept_id', Person, context,
-               dimension_table=Concept, lkp_dimension=True),
+               dimension_table=Concept, perform_lkp=True),
     UserOption('race', '{alias:s}race_concept_id', Person, context,
-               dimension_table=Concept, lkp_dimension=True),
+               dimension_table=Concept, perform_lkp=True),
     UserOption('visit type', '{alias:s}visit_concept_id',
-               Visit_Occurrence, context, dimension_table=Concept, lkp_dimension=True),
+               Visit_Occurrence, context, dimension_table=Concept, perform_lkp=True),
     UserOption('admission type', '{alias:s}admitting_source_concept_id',
-               Visit_Occurrence, context, dimension_table=Concept, lkp_dimension=True),
+               Visit_Occurrence, context, dimension_table=Concept, perform_lkp=True),
     UserOption('discharge type', '{alias:s}discharge_to_concept_id',
-               Visit_Occurrence, context, dimension_table=Concept, lkp_dimension=True),
+               Visit_Occurrence, context, dimension_table=Concept, perform_lkp=True),
     # UserOptionSplit('first admission date', '{alias:s}admission_date',
     #                 'custom', context),   # <--- STILL NEED TO ADD IN CUSTOM TABLES INTO JOIN LOGIC
                                             #      N.B. How to do graph traversal when custom tables
                                             #      are not part of the schema model?
-    UserOption('care site type', '{alias:s}care_site_name', Care_Site, context),
+    UserOption('care site', '{alias:s}care_site_id', Visit_Detail, context,
+               dimension_table=Care_Site, perform_lkp=True),
     UserOption('death', '{alias:s}death_date', Death, context,
                transformations=['not null', 'day', 'week', 'month'],
                default_transformation='week'),

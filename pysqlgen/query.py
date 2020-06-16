@@ -1,6 +1,7 @@
 from collections import UserList, OrderedDict
 from .dbtree import topological_sort
 from .fields import UserOption
+from .utils import rm_alias_placeholder, make_unique_name
 import re
 
 class Statement:
@@ -15,6 +16,7 @@ class Statement:
 
     def __init__(self, context):
         self.aliases = dict()
+        self.lkp_aliases = dict()
         self.context = context
         self._from = StmtFrom(parent=self)
         self.select = StmtGeneric('SELECT', parent=self)
@@ -65,6 +67,7 @@ class StmtFrom(OrderedDict):
         super().__init__()
         self.parent = parent
         self.generated = None
+        self.additional_lkps = None
 
     def __setitem__(self, key, value):
         if key in self.keys():
@@ -74,36 +77,56 @@ class StmtFrom(OrderedDict):
         else:
             super().__setitem__(key, value)
 
-    def generate_statement(self):
+    def generate_basic_statement(self, force_alias=False):
         if self.generated is None:
             nodes = topological_sort(list(self.keys()))
             n = len(nodes)
             join_list = []
-            schema = self.parent.context.schema
-            schema = '' if schema == '' else schema + '.'
+            global_schema = self.parent.context.schema
+            global_schema = '' if global_schema == '' else global_schema + '.'
             aliases = self.parent.aliases
             for i, node in enumerate(nodes):
                 v = self[node]
+                schema = global_schema if node.schema is None else node.schema
                 if i == 0:
                     assert len(v) == 0, "first table should not have a join condition"
-                    alias = '' if n == 1 else node.name[0].lower()
+                    alias = '' if (n == 1 and not force_alias) else node.name[0].lower()
                     aliases[node] = alias
                     join_list.append(f'     {schema}{node.name} {alias}')
                 else:
                     # make human readable alias (using table prefix, not simply a,b,c,...)
-                    alias = node.name[:1].lower()
-                    a_ix = 0
-                    while alias in aliases.values():
-                        a_ix, a_str = (a_ix + 1), ('' if a_ix == 0 else str(a_ix))
-                        alias = ''.join([n[0].lower() for n in node.name.split("_")]) \
-                                + a_str
+                    alias = make_unique_name(node.name, aliases)
                     aliases[node] = alias
                     a = (aliases[v[0][0]], aliases[v[1][0]])  #  join aliases
                     c = (v[0][1], v[1][1])  # join columns
                     join_list.append(f'LEFT JOIN {schema}{node.name} {alias}\nON        '
                                      + f'{a[0]}.{c[0]} = {a[1]}.{c[1]}')
-            self.generated = 'FROM ' + '\n'.join(join_list) + '\n\n'
-        return self.generated
+            self.generated = 'FROM ' + '\n'.join(join_list)
+        return self.generated + '\n\n'
+
+    def add_lookups_to_statement(self, joins):
+        assert self.generated is not None, "Please run 'generate_basic_statement' first."
+        join_list = []
+        global_schema = self.parent.context.schema
+        global_schema = '' if global_schema == '' else global_schema + '.'
+        aliases = self.parent.aliases
+        lkp_aliases = self.parent.lkp_aliases
+        for i, join in enumerate(joins):
+            ((tbl_existing, f_existing), (tbl_dim, f_dim)) = join
+            schema = global_schema if tbl_dim.schema is None else tbl_dim.schema
+            alias = make_unique_name(tbl_dim.name, aliases, lkp_aliases)
+            lkp_aliases[join] = alias
+            join_list.append(f'LEFT JOIN {schema}{tbl_dim.name} {alias}\nON        '
+                             + f'{aliases[tbl_existing]}.{f_existing} = {alias}.{f_dim}')
+        self.additional_lkps = '\n'.join(join_list)
+
+    def generate_statement(self):
+        assert self.generated is not None, "Please run 'generate_basic_statement' first."
+        print(self.additional_lkps)
+        generated = self.generated
+        if self.additional_lkps is not None:
+            generated += ('\n' + self.additional_lkps)
+        return generated + '\n\n'
 
 
 def construct_query(*args, dialect='MSSS'):
@@ -153,22 +176,40 @@ def construct_query(*args, dialect='MSSS'):
                 key = edge[0].common_key(edge[1])
                 stmt._from[edge[0]] = ((edge[0], key), (edge[1], key))
 
+    # Add dimension tables (if requested to joins)
+    lkp_joins = []
+    for o in args:
+        if o.perform_lkp:
+            dtbl = o.dimension_table
+            fk = rm_alias_placeholder(o.sql_item)
+            lkp_joins.append(((o.table, fk), (dtbl, dtbl.pk)))
+
     # Generate statement in order to populate aliases dict
-    stmt._from.generate_statement();
+    stmt._from.generate_basic_statement(force_alias=(len(lkp_joins) > 0))
+    stmt._from.add_lookups_to_statement(lkp_joins)
 
     # === CONSTRUCT SELECT / WHERE ===========
     has_agg = any([arg.has_aggregation for arg in args])
 
-    for arg in args:
-        alias = stmt.aliases[arg.get_table()]
-        sel, where = arg.sql_transform(alias=alias, dialect=dialect)
+    for o in args:
+        # Get table alias for field, depending on whether has lookup table or not
+        if not o.perform_lkp:
+            alias = stmt.aliases[o.get_table()]
+            coalesce = None
+        else:
+            dtbl = o.dimension_table
+            fk = rm_alias_placeholder(o.sql_item)
+            alias = stmt.lkp_aliases[((o.table, fk), (dtbl, dtbl.pk))]
+            coalesce = args[0].context.coalesce_default
+
+        sel, where = o.sql_transform(alias=alias, dialect=dialect, coalesce=coalesce)
         # SELECT
         stmt.select.append(sel)
         # WHERE
         if len(where) > 0:
             stmt.where.append(where)
         # GROUP BY
-        if has_agg and not arg.has_aggregation:
+        if has_agg and not o.has_aggregation:
             gby = re.sub('AS [a-zA-Z0-9_]+$', '', sel).strip()
             stmt.groupby.append(gby)
 

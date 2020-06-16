@@ -9,6 +9,7 @@ class DBMetadata:
         self.AGGREGATIONS = AGGREGATIONS
         self.TRANSFORMATIONS = TRANSFORMATIONS
         self.schema = schema
+        self.coalesce_default = 'Unknown'
 
 
 class SchemaNode:
@@ -25,13 +26,16 @@ class SchemaNode:
     `traverse_to_ancestor` which finds a path between any two nodes via the
     first common ancestor.
     """
-    def __init__(self, name, parent, pk, children, fks, datefield):
+    def __init__(self, name, parent, pk, children, fks, datefield,
+                 default_lkp=None, schema=None):
         self.name = name
-        self.primary_date_field = datefield
         self.parent = parent
         self.children = children
         self.pk = pk
         self.fks = fks
+        self.primary_date_field = datefield
+        self.default_lkp = default_lkp     # if used as a Dimension table
+        self.schema = schema
 
     def __repr__(self):
         return f'{self.name} Table <SchemaNode with parent {self.parent}>'

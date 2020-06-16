@@ -2,6 +2,7 @@ from .utils import *
 from .dbtree import *
 from warnings import warn
 
+
 class UserOption:
     """
     UserOptions may be thought of as elements of a drop-down menu for users
@@ -16,7 +17,7 @@ class UserOption:
                  transformations=[None], aggregations=[None],
                  default_transformation=None, default_aggregation=None,
                  field_alias=None, sql_where=None,
-                 dimension_table=None, lkp_dimension=False,
+                 dimension_table=None, perform_lkp=False, lkp_field=None,
                  verbose=True):
         assert isinstance(context, DBMetadata), "context is not a DBContext object"
         assert is_node(table, allow_custom=True), \
@@ -39,6 +40,12 @@ class UserOption:
             "Please ensure the aggregations are a subset of (" + \
             ", ".join(context.AGGREGATIONS) + ")."
 
+        if dimension_table is not None:
+            sql_item_proc = rm_alias_placeholder(sql_item.strip())
+            assert re.fullmatch('[A-Za-z0-9_.]+', sql_item_proc) is not None, \
+                f"Field names (`sql_item`: {sql_item}) must be pure, not an " + \
+                "expression if attaching a dimension table."
+
         if verbose:
             if sql_item.find('{alias') < 0:
                 warn(f"No table alias placeholder found for {item} " + \
@@ -49,7 +56,6 @@ class UserOption:
             if not (None in aggregations):
                 warn("None not found in aggregations: therefore you will be " + \
                      "unable to select the raw field.")
-
 
         self.item = item
         self.sql_item = sql_item
@@ -64,8 +70,17 @@ class UserOption:
         self.selected_aggregation = default_aggregation
         self.table = table if isinstance(table, SchemaNode) else table.title()
         self.dimension_table = dimension_table
-        self.lkp_dimension = lkp_dimension
+        self.perform_lkp = perform_lkp
         self.sql_where = sql_where
+
+        if dimension_table is not None:
+            if lkp_field is not None:
+                self.lkp_field = lkp_field
+            else:
+                assert self.dimension_table.default_lkp is not None, \
+                    f'{item} No `default_lkp` field in dimension table. You must supply' \
+                    + ' a `lkp_field` in the UserOption arguments.'
+                self.lkp_field = self.dimension_table.default_lkp
 
     def set_transform(self, t):
         # if t is not None:
@@ -87,6 +102,10 @@ class UserOption:
     def has_aggregation(self):
         return self.selected_aggregation is not None
 
+    @property
+    def has_dim_lkp(self):
+        return self.dimension_table is not None
+
     def validate(self):
         if self.table == 'Custom':
             return self.item in self.context.custom_tables
@@ -97,7 +116,7 @@ class UserOption:
             return '(\n' + self.context.custom_tables[self.item] + '\n)'
         return self.table
 
-    def sql_transform(self, alias=None, dialect="MSSS"):
+    def sql_transform(self, alias=None, dialect="MSSS", coalesce=None):
         """
         A kind of look-up table for transformations such as 'MIN', 'AVG', 'YEAR',
         'IS NOT NULL'...
@@ -110,9 +129,16 @@ class UserOption:
         """
 
         assert isinstance(self, UserOption), "opt is not a UserOption"
+
         alias = '' if (alias is None or len(alias) == 0) else alias + '.'
-        name, table, datefield = self.sql_item, self.table, self.table.primary_date_field
+        if not self.perform_lkp:
+            name, table = self.sql_item, self.table
+        else:
+            name, table = self.lkp_field, self.dimension_table
+            name = '{alias:s}' + name
         name = name.format(alias=alias)
+        datefield = self.table.primary_date_field
+
 
         dialect = dialect.lower()
         assert dialect in ["msss",
@@ -168,11 +194,15 @@ class UserOption:
                          f'Trying {a.upper()}')
                 sel = '{:s}({:s})'.format(a.upper(), sel)
 
-        # _____________________ Add field alias and return _____________________________
+        # _____________________ Get field alias ________________________________________
         field_alias = self.field_alias if self.field_alias is not None \
             else str_to_fieldname(self.item)
         if self.has_aggregation and self.field_alias is None:
             field_alias = self.selected_aggregation.lower().strip() + '_' + field_alias
+
+        # ________________ Coalesce with default (if left join) _______________________
+        if coalesce is not None:
+            sel = f"COALESCE({sel}, '{coalesce}')"
 
         sel += f' AS {field_alias}'
         return sel, where
