@@ -45,7 +45,7 @@ context = DBMetadata(nodes, custom_tables, schema, AGGREGATIONS, TRANSFORMATIONS
 
 
 # Define options for user selection
-opts_aggregation = (
+opts_primary = (
     UserOption('person', '{alias:s}person_id', Person, context,
                aggregations=[None, 'rows', 'count'], default_aggregation='count'),
     UserOption('measurement_types', '{alias:s}measurement_concept_id', Measurement,
@@ -83,3 +83,4 @@ opts_split = (
 # agg_opt.set_aggregation('count')
 # tmp = construct_query(agg_opt, opts_split[0], *opts_split[1:])
 # print(tmp)
+

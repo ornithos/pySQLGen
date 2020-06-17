@@ -71,7 +71,7 @@ class UserOption:
         self.selected_aggregation = default_aggregation
         self.table = table if isinstance(table, SchemaNode) else table.title()
         self.dimension_table = dimension_table
-        self.perform_lkp = perform_lkp
+        self._perform_lkp = perform_lkp
         self.sql_where = sql_where
 
         if dimension_table is not None:
@@ -107,6 +107,16 @@ class UserOption:
     def has_dim_lkp(self):
         return self.dimension_table is not None
 
+    @property
+    def perform_lkp(self):
+        return self._perform_lkp
+
+    @perform_lkp.setter
+    def perform_lkp(self, val):
+        if val is True:
+            assert self.has_dim_lkp, "Cannot set `perform_lkp=True` - no dimension table!"
+        self._perform_lkp = val
+
     def validate(self):
         if self.table == 'Custom':
             return self.item in self.context.custom_tables
@@ -124,6 +134,14 @@ class UserOption:
 
     def copy(self):
         return copy.copy(self)
+
+    def __repr__(self):
+        return f'UserOption({hex(id(self))}, {self.item}, tf={self.selected_transform}, ' + \
+            f'agg={self.selected_aggregation}, lkp={self.perform_lkp})'
+
+    def __str__(self):
+        return f'UserOption({self.item}, tf={self.selected_transform}, ' + \
+            f'agg={self.selected_aggregation}, lkp={self.perform_lkp})'
 
     def sql_transform(self, alias=None, dialect="MSSS", coalesce=None):
         """

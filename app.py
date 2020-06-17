@@ -4,10 +4,14 @@ import dash_html_components as html
 from dash.dependencies import Input, Output, State
 from pysqlgen.apputils import app_state_to_opts
 
+import decovid
+from decovidqueries import standard_queries, standard_query_to_panel_indices, \
+    standard_query_to_opts, get_query_from_index
+
 # --------- "GLOBALS" -------------------------------------------------
 main_text_style = {'text-align': 'center', 'max-width': '800px', 'margin': 'auto'}
 tab_header_text_style = {'text-align': 'center', 'max-width': '800px', 'margin': 'auto',
-                         'font-size':'14px'}
+                         'font-size': '14px'}
 lhs_text_style = {'text-align': 'left', 'max-width': '800px', 'margin': 'auto'}
 rhs_text_style = {'text-align': 'right', 'max-width': '800px', 'margin': 'auto'}
 main_div_style = {'margin':'auto', 'padding-left': '100px', 'padding-right': '100px',
@@ -15,15 +19,18 @@ main_div_style = {'margin':'auto', 'padding-left': '100px', 'padding-right': '10
 
 
 # --------- DATA ------------------------------------------------------
-import example
-
-primary_fields = example.opts_aggregation
+primary_fields = decovid.opts_primary
 primary_fields[0].set_aggregation('count')
-secondary_fields = example.opts_split
+secondary_fields = decovid.opts_split
 debug_ui = True
 print("BEGIN")
 
 # --------- DEFINE INPUT ----------------------------------------------
+dropdown_sQuery = dcc.Dropdown(
+            id='dropdown-squery',
+            options=[{'label': k, 'value': i}
+                     for i, (k, v) in enumerate(standard_queries.items())],
+            style={'font-size': '13px'}, value=0)
 dropdown_Primary = dcc.Dropdown(
             id='dropdown-primary',
             options=[{'label': opt.item, 'value': i}
@@ -42,11 +49,14 @@ dropdown_Primary_agg = dcc.Dropdown(
             ], style={'font-size': '13px'}, value=0)
 
 
+secondary_var_options = [{'label': opt.item, 'value': i} if i > 0 else
+                         {'label': '<None>', 'value': 0} for i, opt in
+                         enumerate(secondary_fields)]
+
 def construct_dropdowns(id, opts):
     opts = [None, *opts]
     return dcc.Dropdown(id=id,
-                        options=[{'label': opt.item, 'value': i} if i > 0 else
-                        {'label': '<None>', 'value': 0} for i, opt in enumerate(opts)],
+                        options=secondary_var_options,
                         style={'font-size': '13px'}, value=0), \
            dcc.Dropdown(id=id+'-trans',
                         options=[{'label': '<None>', 'value': 0}],
@@ -93,38 +103,54 @@ See the drop-down menus on the left to select your query,
 app = dash.Dash(__name__) #, external_stylesheets=external_stylesheets)
 server = app.server
 
+custom_space = lambda x: html.Div([html.Br()], style={'line-height': f'{x}%'})
 
 app.layout = html.Div([
     dcc.Markdown(children=introduction, style=main_text_style, className="row"),
     html.Br(),
     html.Div([
         html.Div([
-            dcc.Markdown("**Primary variable**:", style=tab_header_text_style,
-                         className="four columns"),
-            dcc.Markdown("**Transform**:", style=tab_header_text_style,
-                         className="three columns"),
-            dcc.Markdown("**Aggregation**:", style=tab_header_text_style,
-                         className="four columns"),
-            dcc.Markdown("**Name**:", style=tab_header_text_style,
-                         className="one column")
-        ], className="row"),
+                html.Div([
+                    dcc.Markdown("**Standard query**:", style=tab_header_text_style,
+                                 className="four columns"),
+                    html.Div(dropdown_sQuery, className="six columns"),
+                ], className="row"),
+                html.Br(),
+                html.Button(id='submit-button-standard', n_clicks=0,
+                            children='Submit', className="four offset-by-four columns")
+            ], className="row", style={'background-color': '#EEEEEE', 'padding': '10px'}
+        ),
         html.Br(),
         html.Div([
-            html.Div(dropdown_Primary, className="four columns"),
-            html.Div(dropdown_Primary_trans, className="three columns"),
-            html.Div(dropdown_Primary_agg, className="three columns"),
-        ], className="row"),
-        html.Br(),
-        html.Div([
-            dcc.Markdown("**Secondary variables**:", style=tab_header_text_style,
-                         className="four columns"),
-        ], className="row"),
-        html.Br(),
-        *secondary_dropdown_div,
-        html.Br(),
-        html.Button(id='submit-button', n_clicks=0, children='Submit'),
-    ], className="four columns",
-        style={'background-color': '#EEEEEE', 'padding': '10px'}),
+            html.Div([
+                dcc.Markdown("&nbsp;&nbsp;**Customise**:"),
+                html.Br(),
+                dcc.Markdown("Primary variable:", style=tab_header_text_style,
+                             className="four columns"),
+                dcc.Markdown("Transform:", style=tab_header_text_style,
+                             className="three columns"),
+                dcc.Markdown("Aggregation:", style=tab_header_text_style,
+                             className="four columns"),
+                dcc.Markdown("Name:", style=tab_header_text_style,
+                             className="one column")
+            ], className="row"),
+            custom_space(30),
+            html.Div([
+                html.Div(dropdown_Primary, className="four columns"),
+                html.Div(dropdown_Primary_trans, className="three columns"),
+                html.Div(dropdown_Primary_agg, className="three columns"),
+            ], className="row"),
+            html.Br(),
+            html.Div([
+                dcc.Markdown("Secondary variables:", style=tab_header_text_style,
+                             className="four columns"),
+            ], className="row"),
+            custom_space(30),
+            *secondary_dropdown_div,
+            html.Br(),
+            html.Button(id='submit-button', n_clicks=0, children='Submit'),
+        ], style={'background-color': '#EEEEEE', 'padding': '10px'})
+    ], className="four columns"),
     html.Div([
         html.Div(id='sql-output-container')
         ], className="six columns", style={'border': 'solid #CCCCCC 1px',
@@ -135,9 +161,12 @@ app.layout = html.Div([
 
 # --------- REACTIVE -------------------------------------------------
 
-################################
-# Click "Submit" to generate SQL
-################################
+###############################################
+# Click *either* "Submit" button to generate SQL
+###############################################
+# (note that each output may currently have a max
+#  of ONE function to change it, and hence must
+#  share the same function if needed :( )
 all_states = [State('dropdown-primary', 'value'),
                State('dropdown-primary-trans', 'value'),
                State('dropdown-primary-agg', 'value')]
@@ -146,16 +175,34 @@ for i in range(num_secondary):
                    State(f'dropdown-{i}-trans', 'value'),
                    State(f'dropdown-{i}-agg', 'value'),
                    State(f'check-{i}', 'value')])
+all_states.append(State(f'dropdown-squery', 'value'))
+
 
 @app.callback(Output('sql-output-container', 'children'),
-              [Input('submit-button', 'n_clicks')],
+              [Input('submit-button', 'n_clicks'),
+               Input('submit-button-standard', 'n_clicks')],
               all_states)
-def update_output(n_clicks, *args):
-    use_opts, dbg_str = app_state_to_opts(args, primary_fields, secondary_fields)
+def update_output(n_clicks1, n_clicks2, *args):
 
+    # which button called the function?
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        button_id = 'submit-button-standard'
+    else:
+        button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    if button_id == 'submit-button-standard':
+        query = get_query_from_index(args[-1], standard_queries)
+        use_opts, dbg_str = standard_query_to_opts(query, primary_fields,
+                                                   secondary_fields)
+    else:
+        print(args)
+        use_opts, dbg_str = app_state_to_opts(args[:-1], primary_fields, secondary_fields)
+
+    print(use_opts)
     if len(use_opts) > 0:
         print(f"Create query with {len(use_opts)} fields selected")
-        sql = example.construct_query(*use_opts)
+        sql = decovid.construct_query(*use_opts)
     else:
         sql = "\n\n~~~~ NO VARIABLES SELECTED ~~~~~\n\n"
 
@@ -182,10 +229,10 @@ def _generate_update_dd(trans_or_agg, fields, has_none_field=False):
             val = val -1 if has_none_field else val
             opt = fields[val]
             if trans_or_agg == 'transformation':
-                options_list = [*opt.transformations]
+                options_list = opt.transformations
                 value = options_list.index(opt.default_transformation)
             elif trans_or_agg == 'aggregation':
-                options_list = [*opt.aggregations]
+                options_list = opt.aggregations
                 value = options_list.index(opt.default_aggregation)
             else:
                 raise RuntimeError(f'Unknown drop-down type: {trans_or_agg}')
@@ -262,6 +309,77 @@ app.callback([Output('dropdown-primary-agg', 'options'),
              [Input(f'dropdown-primary', 'value')])(update_dd_agg_p)
 
 
+###################################################
+# Update dropdowns based on selected STANDARD QUERY
+###################################################
+elements_to_update = ['options', 'value', 'disabled']
+dd_types = ['', '-trans', '-agg']
+all_outs = [Output(f'dropdown-primary{t}', element) for element in elements_to_update
+              for t in dd_types]
+for i in range(num_secondary):
+    all_outs.extend([Output(f'dropdown-{i}{t}', element) for element in
+                       elements_to_update for t in dd_types])
+for i in range(num_secondary):
+    all_outs.append(Output(f'check-{i}', 'options'))
+    all_outs.append(Output(f'check-{i}', 'value'))
+
+
+@app.callback(all_outs,
+              [Input('submit-button-standard', 'n_clicks')],
+              [State('dropdown-squery', 'value')])
+def update_dds_from_standard(n_clicks, query_ix):
+    query = get_query_from_index(query_ix, standard_queries)
+    panel_rows = standard_query_to_panel_indices(query, primary_fields, secondary_fields,
+                                                as_obj=True)
+    n = len(panel_rows)
+
+    out = []
+    # primary variable
+    first_row = panel_rows[0]
+    field = primary_fields[first_row.item_id]
+    #  * primary variable dropdown
+    out.extend([dropdown_Primary.options, first_row.item_id, False])
+    #  * transformation dropdown
+    trans_id = first_row.trans_id if first_row.trans_id is not None else 0
+    trans_disable = (len(field.transformations) == 1) and (field.transformations[0] is None)
+    out.extend([field.transformations, trans_id, trans_disable])
+    #  * aggregation dropdown
+    agg_id = first_row.agg_id if first_row.agg_id is not None else 0
+    agg_disable = (len(field.aggregations) == 1) and (field.aggregations[0] is None)
+    out.extend([field.aggregations, agg_id, agg_disable])
+
+    # secondary variables
+    checklists = []
+    for i in range(n-1):
+        # variable
+        row = panel_rows[i+1]
+        field = secondary_fields[row.item_id]
+        #  * variable dropdown
+        out.extend([secondary_var_options, row.item_id, False])
+        #  * transformation dropdown
+        trans_id = row.trans_id if row.trans_id is not None else 0
+        trans_disable = (len(field.transformations) == 1) and (
+                    field.transformations[0] is None)
+        out.extend([field.transformations, trans_id, trans_disable])
+        #  * aggregation dropdown
+        agg_id = row.agg_id if row.agg_id is not None else 0
+        agg_disable = (len(field.aggregations) == 1) and (field.aggregations[0] is None)
+        out.extend([field.aggregations, agg_id, agg_disable])
+
+        # checklist
+        chk_disabled = field.has_dim_lkp
+        checklists.append([{'label': '', 'value': 1, 'disabled': chk_disabled}])
+        checklists.append([1] if row.perform_lkp else [])  # checklist value
+
+    for i in range(num_secondary - (n - 1)):
+        out.extend([secondary_var_options, 0, False])
+        checklists.append([{'label': '', 'value': 1, 'disabled': True}])
+        checklists.append([])  # checklist value
+
+    out.extend(checklists)
+    return out
+
+
 # --------- RUN APP -------------------------------------------------
 
 if __name__ == '__main__':
@@ -274,17 +392,7 @@ if __name__ == '__main__':
 """
 TODO:
 =============
-
-* Want to allow BOTH aggregations AND transformations.
-    * GUI allows only one or the other.
-    * SQL Generator only allows one or the other.
-
-GUI:
-* ~~Distinction of primary vs secondary variable can probably be dropped~~
-
-SQL Generation
-* Add "as_english" / join to concept_id table for selected IDs. I think "as_english"
-is wrong, but instead should just specify the Dimension table.
+* problem if "Name" unavailable and was previously ticked -> gets locked and breaks.
 * transformation --> aggregation via subqueries if necessary.
 
 """

@@ -51,6 +51,10 @@ def sync_index(i, cur_list, dest_list, None_is_str=False):
     return dest_list.index(cur_item)
 
 
+def flatten(l):
+    return [item for sublist in l for item in sublist]
+
+
 def get_nth_chunk(n, indexable, chunksizes):
     chunk_start = sum(chunksizes[:n])
     chunk_end = chunk_start + chunksizes[n]
