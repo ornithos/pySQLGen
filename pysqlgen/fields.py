@@ -100,8 +100,42 @@ class UserOption:
         return self.selected_transform is not None
 
     @property
+    def default_transformation_ix(self):
+        return self.transformations.index(self.default_transformation)
+
+    @property
+    def transformation_options(self):
+        return [{'label': t, 'value': i} if t is not None else
+                {'label': '<None>', 'value': i} for i, t in
+                enumerate(self.transformations)]
+
+    @property
+    def transformation_is_disabled(self):
+        if (len(self.transformations) == 1) and (self.transformations[0] is None):
+            return True
+        else:
+            return False
+
+    @property
     def has_aggregation(self):
         return self.selected_aggregation is not None
+
+    @property
+    def default_aggregation_ix(self):
+        return self.aggregations.index(self.default_aggregation)
+
+    @property
+    def aggregation_options(self):
+        return [{'label': t, 'value': i} if t is not None else
+                {'label': '<None>', 'value': i} for i, t in
+                enumerate(self.aggregations)]
+
+    @property
+    def aggregation_is_disabled(self):
+        if (len(self.aggregations) == 1) and (self.aggregations[0] is None):
+            return True
+        else:
+            return False
 
     @property
     def has_dim_lkp(self):
@@ -116,6 +150,9 @@ class UserOption:
         if val is True:
             assert self.has_dim_lkp, "Cannot set `perform_lkp=True` - no dimension table!"
         self._perform_lkp = val
+
+    def lkp_options(self):
+        return [{'label': '', 'value': 1, 'disabled': self.has_dim_lkp}]
 
     def validate(self):
         if self.table == 'Custom':

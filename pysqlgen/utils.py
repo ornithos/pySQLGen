@@ -55,6 +55,10 @@ def flatten(l):
     return [item for sublist in l for item in sublist]
 
 
+def not_none(*args):
+    return next((el for el in args if el is not None), None)
+
+
 def get_nth_chunk(n, indexable, chunksizes):
     chunk_start = sum(chunksizes[:n])
     chunk_end = chunk_start + chunksizes[n]
