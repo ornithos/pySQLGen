@@ -1,6 +1,6 @@
 from .dbtree import SchemaNode
 import re
-
+import time
 
 def is_node(x, allow_custom=False):
     if isinstance(x, SchemaNode):
@@ -67,3 +67,7 @@ def get_nth_chunk(n, indexable, chunksizes):
 
 def rm_alias_placeholder(x):
     return re.sub('{alias(:s)?}', '', x)
+
+
+def cur_time_ms():
+    return int(round(time.time() * 1000))

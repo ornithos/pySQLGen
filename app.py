@@ -2,8 +2,8 @@ import dash
 import dash_core_components as dcc
 import dash_html_components as html
 from dash.dependencies import Input, Output, State
-from pysqlgen.apputils import app_state_to_opts, RowOptionsSelected
-from pysqlgen.utils import not_none
+from pysqlgen.apputils import app_state_to_opts, get_trigger
+from pysqlgen.utils import not_none, cur_time_ms
 
 import decovid
 from decovidqueries import standard_queries, standard_query_to_panel_indices, \
@@ -48,11 +48,12 @@ dropdown_Primary_agg = dcc.Dropdown(
                 {'label': '<None>', 'value': 0},
                 {'label': 'Count', 'value': 1}
             ], style={'font-size': '13px'}, value=0)
+primary_stack = dcc.Store(id='stack-primary')
 
 
-secondary_var_options = [{'label': opt.item, 'value': i} if i > 0 else
-                         {'label': '<None>', 'value': 0} for i, opt in
-                         enumerate(secondary_fields)]
+secondary_var_options = [{'label': '<None>', 'value': 0}]
+secondary_var_options.extend([{'label': opt.item, 'value': i+1} for i, opt in
+                              enumerate(secondary_fields)])
 
 def construct_dropdowns(id, opts):
     opts = [None, *opts]
@@ -85,6 +86,7 @@ for i in range(num_secondary):
                 html.Div(construct_checkbox(f'check-{i}'), className="one column")
             ], className="row", style={'padding-bottom': '15px'})
     )
+secondary_stacks = [dcc.Store(id=f'stack-{i}') for i in range(num_secondary)]
 
 # --------- COPY ------------------------------------------------------
 
@@ -149,15 +151,20 @@ app.layout = html.Div([
             custom_space(30),
             *secondary_dropdown_div,
             html.Br(),
-            html.Button(id='submit-button', n_clicks=0, children='Submit'),
+            html.Button(id='submit-button', n_clicks=0, children='Submit')
         ], style={'background-color': '#EEEEEE', 'padding': '10px'})
     ], className="four columns"),
     html.Div([
         html.Div(id='sql-output-container')
         ], className="six columns", style={'border': 'solid #CCCCCC 1px',
-                                           'padding': '10px'})
+                                           'padding': '10px'}),
+    primary_stack,
+    *secondary_stacks
 
 ])
+
+
+
 
 
 # --------- REACTIVE -------------------------------------------------
@@ -212,297 +219,168 @@ def update_output(n_clicks1, n_clicks2, *args):
     return html.Pre(sql)
 
 
-##########################################
-# Update dropdowns based on selected field
-##########################################
-# def _generate_update_dd(trans_or_agg, fields, has_none_field=False):
-#     # below, val is the *index* of the selected variable in the LHS dropdown
-#     def update_dd_trans(val):
-#         if val is None or \
-#                 (has_none_field and val == 0):
-#             # Clear dropdowns if:
-#             # * User has cleared the Field dropdown using [x]
-#             # * No variable is selected via the <None> field.
-#             # in this context, we should show nothing / blank out dropdown.
-#             return [{'label': '<None>', 'value': 0}], -1, True
-#         else:
-#             # val-1 if <none> field exists, o.w. val
-#             val = val -1 if has_none_field else val
-#             opt = fields[val]
-#             if trans_or_agg == 'transformation':
-#                 options_list = opt.transformations
-#                 value = options_list.index(opt.default_transformation)
-#             elif trans_or_agg == 'aggregation':
-#                 options_list = opt.aggregations
-#                 value = options_list.index(opt.default_aggregation)
-#             else:
-#                 raise RuntimeError(f'Unknown drop-down type: {trans_or_agg}')
-#             print(options_list)
-#             print(value)
-#             disable = True if ((len(options_list) == 1) and (options_list[0] is None)) \
-#                 else False
-#
-#             return ([{'label': t, 'value': i} if t is not None else
-#                     {'label': '<None>', 'value': i} for i, t in enumerate(options_list)],
-#                     value, disable)
-#
-#     return update_dd_trans
-#
-#
-# def _generate_update_check(fields, has_none_field=False):
-#     # below, val is the *index* of the selected variable in the LHS dropdown
-#     def update_check(val):
-#         if val is None or \
-#                 (has_none_field and val == 0):
-#             # Clear dropdowns if:
-#             # * User has cleared the Field dropdown using [x]
-#             # * No variable is selected via the <None> field.
-#             # in this context, we should show nothing / blank out dropdown.
-#             return [{'label': '', 'value': 1, 'disabled': True}]
-#         else:
-#             # val-1 if <none> field exists, o.w. val
-#             val = val -1 if has_none_field else val
-#             if fields[val].has_dim_lkp:
-#                 return [{'label': '', 'value': 1, 'disabled': False}]
-#             else:
-#                 return [{'label': '', 'value': 1, 'disabled': True}]
-#     return update_check
-#
-# ################################################################################
-# # Update secondary transformations
-# for i in range(num_secondary):
-#     update_dd_trans = _generate_update_dd('transformation', secondary_fields,
-#                                           has_none_field=True)
-#     app.callback([Output(f'dropdown-{i}-trans', 'options'),
-#                   Output(f'dropdown-{i}-trans', 'value'),
-#                   Output(f'dropdown-{i}-trans', 'disabled')],
-#                  [Input(f'dropdown-{i}', 'value')])(update_dd_trans)
-#
-# # Update secondary aggregations
-# for i in range(num_secondary):
-#     update_dd_agg = _generate_update_dd('aggregation', secondary_fields,
-#                                         has_none_field=True)
-#     app.callback([Output(f'dropdown-{i}-agg', 'options'),
-#                   Output(f'dropdown-{i}-agg', 'value'),
-#                   Output(f'dropdown-{i}-agg', 'disabled')],
-#                  [Input(f'dropdown-{i}', 'value')])(update_dd_agg)
-#
-# # Update secondary checklists
-# for i in range(num_secondary):
-#     update_chk = _generate_update_check(secondary_fields, has_none_field=True)
-#     app.callback(Output(f'check-{i}', 'options'),
-#                  [Input(f'dropdown-{i}', 'value')])(update_chk)
-#
-#
-# ################################################################################
-# # Update primary transformation
-# update_dd_trans_p = _generate_update_dd('transformation', primary_fields)
-# app.callback([Output('dropdown-primary-trans', 'options'),
-#               Output('dropdown-primary-trans', 'value'),
-#               Output('dropdown-primary-trans', 'disabled')],
-#              [Input(f'dropdown-primary', 'value')])(update_dd_trans_p)
-#
-# # Update primary aggregation
-# update_dd_agg_p = _generate_update_dd('aggregation', primary_fields)
-# app.callback([Output('dropdown-primary-agg', 'options'),
-#               Output('dropdown-primary-agg', 'value'),
-#               Output('dropdown-primary-agg', 'disabled')],
-#              [Input(f'dropdown-primary', 'value')])(update_dd_agg_p)
-
-
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ###################################################
 # Update dropdowns based on selected STANDARD QUERY
 #     OR any of the LHS variable dropdowns.
 ###################################################
 elements_to_update = ['options', 'value', 'disabled']
-dd_types = ['', '-trans', '-agg']
-primary_outs = [Output(f'dropdown-primary{t}', element) for element in elements_to_update
-              for t in dd_types]
+dd_types = ['-trans', '-agg']
+primary_outs = [Output(f'dropdown-primary{t}', element)
+                for t in dd_types for element in elements_to_update]
 
 secondary_outs = []
 for i in range(num_secondary):
     row = []
-    row.extend([Output(f'dropdown-{i}{t}', element) for element in
-                       elements_to_update for t in dd_types])
+    row.extend([Output(f'dropdown-{i}{t}', element) for t in dd_types for element in
+                elements_to_update])
     row.append(Output(f'check-{i}', 'options'))
     row.append(Output(f'check-{i}', 'value'))
     secondary_outs.append(row)
 
 secondary_var_inputs = [Input(f'dropdown-{i}', 'value') for i in range(num_secondary)]
 
-
-@app.callback(primary_outs,
-              [Input('submit-button-standard', 'n_clicks'),
-               Input(f'dropdown-primary', 'value')],
+##################
+# PRIMARY VARIABLE
+##################
+@app.callback([Output('dropdown-primary', 'value'),
+               Output('stack-primary', 'data'),
+               Output('stack-primary', 'modified_timestamp')],
+              [Input('submit-button-standard', 'n_clicks')],
               [State('dropdown-squery', 'value')])
-def update_dds_primary(n_clicks, val, query_ix):
+def update_std_primary(n_clicks, query_ix):
 
-    # what called the function?
-    ctx = dash.callback_context
-    if not ctx.triggered:
-        trigger_id = 'submit-button-standard'
+    query = get_query_from_index(query_ix, standard_queries)
+    panel_rows = standard_query_to_panel_indices(query, primary_fields,
+                                                 secondary_fields,
+                                                 as_obj=True)
+    # primary variable
+    first_row = panel_rows[0]
+    trans_id = not_none(first_row.trans_id, 0)
+    agg_id = not_none(first_row.agg_id, 0)
+    push_to_stack = f'{trans_id},{agg_id}'
+
+    return [first_row.item_id, push_to_stack, cur_time_ms()]
+
+
+@app.callback([*primary_outs],
+              [Input(f'dropdown-primary', 'value')],
+              [State('stack-primary', 'data'),
+               State('stack-primary', 'modified_timestamp')])
+def update_dds_primary(val, stack, stack_ts):
+    if val is None:
+        # * User has cleared the Field dropdown using [x]
+        return ([{'label': '<None>', 'value': 0}], -1, True,
+                [{'label': '<None>', 'value': 0}], -1, True)
+
+    cur_time = cur_time_ms()
+    timedelta_s = (cur_time - stack_ts)/1000
+    stale = timedelta_s > 1  # (> 1 seconds since stack last pushed)
+    if stale or (stack is None) or (len(stack) == 0):
+        print(f'Not using primary stack. Timedelta: {timedelta_s}. Contents: {stack}')
+        stackvals = []
+        use_stack = False
     else:
-        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        print(f'Using primary stack. Contents: {stack}')
+        try:
+            stackvals = [int(x) for x in stack.split(',')]
+        except Exception as e:
+            print("STACK IS:", stack)
+            raise e
+        assert len(stackvals) == 2, f"stack {stack} is invalid for primary row"
+        use_stack = True
 
+    field = primary_fields[val]
     out = []
-    if trigger_id == 'submit-button-standard':
+    trans_ix = stackvals[0] if use_stack else field.default_transformation_ix
+    agg_ix = stackvals[1] if use_stack else field.default_aggregation_ix
+    out.extend([field.transformation_options, trans_ix, field.transformation_is_disabled])
+    out.extend([field.aggregation_options, agg_ix, field.aggregation_is_disabled])
+
+    return out
+
+
+#####################
+# SECONDARY VARIABLES
+#####################
+def _generate_update_std_secondary(i):
+    def update_std(n_clicks, query_ix):
+
         query = get_query_from_index(query_ix, standard_queries)
         panel_rows = standard_query_to_panel_indices(query, primary_fields,
                                                      secondary_fields,
                                                      as_obj=True)
-        # primary variable
-        first_row = panel_rows[0]
-        field = primary_fields[first_row.item_id]
-        #  * primary variable dropdown
-        out.extend([dropdown_Primary.options, first_row.item_id, False])
-        #  * transformation dropdown
-        trans_id = not_none(first_row.trans_id, 0)
-        out.extend([field.transformations, trans_id, field.transformation_is_disabled])
-        #  * aggregation dropdown
-        agg_id = not_none(first_row.agg_id, 0)
-        out.extend([field.aggregations, agg_id, field.aggregation_is_disabled])
-    elif trigger_id == 'dropdown-primary':
-        if val is None:
-            # * User has cleared the Field dropdown using [x]
-            return (dash.no_update, dash.no_update, dash.no_update,
-                    [{'label': '<None>', 'value': 0}], -1, True,
-                    [{'label': '<None>', 'value': 0}], -1, True)
-        else:
-            field = primary_fields[val]
-            out = [dash.no_update, dash.no_update, dash.no_update]
-            out.extend([field.transformation_options, field.default_transformation_ix,
-                     field.transformation_is_disabled])
-            out.extend([field.aggregation_options, field.default_aggregation_ix,
-                        field.aggregation_is_disabled])
-    return out
-
-
-def _generate_update_dds_secondary(i):
-    def update_dds_secondary(n_clicks, val, query_ix):
-
-        # what called the function?
-        ctx = dash.callback_context
-        if not ctx.triggered:
-            trigger_id = 'submit-button-standard'
-        else:
-            trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-        out = []
-        if trigger_id == 'submit-button-standard':
-            query = get_query_from_index(query_ix, standard_queries)
-            panel_rows = standard_query_to_panel_indices(query, primary_fields,
-                                                         secondary_fields,
-                                                         as_obj=True)
-
+        if len(panel_rows) > i+1:
             row = panel_rows[i+1]
-            field = secondary_fields[row.item_id]
-            #  * variable dropdown
-            out.extend([secondary_var_options, row.item_id, False])
-            #  * transformation dropdown
-            trans_id = not_none(row.trans_id, 0)
-            out.extend([field.transformation_options, trans_id,
-                        field.transformation_is_disabled])
-            #  * aggregation dropdown
-            agg_id = not_none(row.agg_id, 0)
-            out.extend([field.aggregations_options, agg_id,
-                        field.aggregation_is_disabled])
-            out.extend([field.lkp_options, [1] if row.perform_lkp else [] ])
-        elif trigger_id == f'dropdown-{i}':
-            if val is None or val == 0:
-                # * User has cleared the Field dropdown using [x], OR
-                # * "No variable" is selected via the <None> field.
-                return (dash.no_update, dash.no_update, dash.no_update,
-                        [{'label': '<None>', 'value': 0}], -1, True,
-                        [{'label': '<None>', 'value': 0}], -1, True,
-                        [{'label': '', 'value': 1, 'disabled': True}], [])
-            else:
-                field = secondary_fields[val]
-                out = [dash.no_update, dash.no_update, dash.no_update]
-                out.extend([field.transformation_options, field.default_transformation_ix,
-                            field.transformation_is_disabled])
-                out.extend([field.aggregation_options, field.default_aggregation_ix,
-                            field.aggregation_is_disabled])
-                out.extend([field.lkp_options, [] ])
-        return out
-    return update_dds_secondary
+            ix = row.item_id
+            push_to_stack = f'{row.trans_id},{row.agg_id},{row.perform_lkp}'
+        else:
+            ix = None
+            push_to_stack = ''
+        return [ix, push_to_stack, cur_time_ms()]
+    return update_std
 
 
 for i in range(num_secondary):
-    update_dd = _generate_update_dds_secondary(i)
-    app.callback(secondary_outs[i],
-                 [Input('submit-button-standard', 'n_clicks'),
-                  Input(f'dropdown-{i}', 'value')],
-                 [State('dropdown-squery', 'value')])(update_dd)
+    update_std = _generate_update_std_secondary(i)
+    app.callback([Output(f'dropdown-{i}', 'value'),
+                  Output(f'stack-{i}', 'data'),
+                  Output(f'stack-{i}', 'modified_timestamp')],
+                 [Input('submit-button-standard', 'n_clicks')],
+                 [State('dropdown-squery', 'value')])(update_std)
 
-# @app.callback(all_outs,
-#               [Input('submit-button-standard', 'n_clicks'),
-#                Input(f'dropdown-primary', 'value'),
-#                *secondary_var_inputs],
-#               [State('dropdown-squery', 'value')])
-# def update_dds_from_standard(n_clicks, *args):
-#     query_ix = args.pop(-1)
-#
-#     # what called the function?
-#     ctx = dash.callback_context
-#     if not ctx.triggered:
-#         trigger_id = 'submit-button-standard'
-#     else:
-#         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-#
-#     if trigger_id == 'submit-button-standard':
-#         query = get_query_from_index(query_ix, standard_queries)
-#         panel_rows = standard_query_to_panel_indices(query, primary_fields, secondary_fields,
-#                                                     as_obj=True)
-#         n = len(panel_rows)
-#         first_row = panel_rows[0]
-#         secondary_rows = panel_rows[1:]
-#         primary, secondary = True, True
-#     elif trigger_id == 'dropdown-primary':
-#         out = []
-#         # primary variable
-#         first_row = panel_rows[0]
-#         field = primary_fields[first_row.item_id]
-#         #  * primary variable dropdown
-#         out.extend([dropdown_Primary.options, first_row.item_id, False])
-#         #  * transformation dropdown
-#         trans_id = first_row.trans_id if first_row.trans_id is not None else 0
-#         trans_disable = (len(field.transformations) == 1) and (field.transformations[0] is None)
-#         out.extend([field.transformations, trans_id, trans_disable])
-#         #  * aggregation dropdown
-#         agg_id = first_row.agg_id if first_row.agg_id is not None else 0
-#         agg_disable = (len(field.aggregations) == 1) and (field.aggregations[0] is None)
-#         out.extend([field.aggregations, agg_id, agg_disable])
-#
-#         # secondary variables
-#         checklists = []
-#         for i in range(n-1):
-#             # variable
-#             row = panel_rows[i+1]
-#             field = secondary_fields[row.item_id]
-#             #  * variable dropdown
-#             out.extend([secondary_var_options, row.item_id, False])
-#             #  * transformation dropdown
-#             trans_id = row.trans_id if row.trans_id is not None else 0
-#             trans_disable = (len(field.transformations) == 1) and (
-#                         field.transformations[0] is None)
-#             out.extend([field.transformations, trans_id, trans_disable])
-#             #  * aggregation dropdown
-#             agg_id = row.agg_id if row.agg_id is not None else 0
-#             agg_disable = (len(field.aggregations) == 1) and (field.aggregations[0] is None)
-#             out.extend([field.aggregations, agg_id, agg_disable])
-#
-#             # checklist
-#             chk_disabled = field.has_dim_lkp
-#             checklists.append([{'label': '', 'value': 1, 'disabled': chk_disabled}])
-#             checklists.append([1] if row.perform_lkp else [])  # checklist value
-#
-#         for i in range(num_secondary - (n - 1)):
-#             out.extend([secondary_var_options, 0, False])
-#             checklists.append([{'label': '', 'value': 1, 'disabled': True}])
-#             checklists.append([])  # checklist value
-#
-#         out.extend(checklists)
-#     return out
+
+def _generate_update_dds_secondary(i):
+    def update_dds(val, stack, stack_ts):
+        if val is None or val == 0:
+            # EITHER:
+            # * User has cleared the Field dropdown using [x]
+            # * No variable is selected via the <None> field.
+            return ([{'label': '<None>', 'value': 0}], -1, True,
+                    [{'label': '<None>', 'value': 0}], -1, True,
+                    [{'label': '', 'value': 1, 'disabled': True}],
+                    [])
+
+        cur_time = cur_time_ms()
+        timedelta_s = (cur_time - stack_ts) / 1000
+        stale = timedelta_s > 1  # (> 1 seconds since stack last pushed)
+        if stale or (stack is None) or (len(stack) == 0):
+            print(f'Not using stack {i}. Timedelta: {timedelta_s}. Contents: {stack}')
+            stackvals = []
+            use_stack = False
+        else:
+            print(f'Using stack {i}. Timedelta: {timedelta_s}. Contents: {stack}')
+            stacksplit = stack.split(',')
+            stackvals = [int(x) for x in stacksplit[:2]]
+            stackvals.append(stacksplit[2] == 'True')
+            assert len(stackvals) == 3, f"stack {stack} is invalid for secondary row"
+            use_stack = True
+
+
+        field = secondary_fields[val-1]
+        out = []
+        trans_ix = stackvals[0] if use_stack else field.default_transformation_ix
+        agg_ix = stackvals[1] if use_stack else field.default_aggregation_ix
+        chkmark = stackvals[2] if use_stack else False
+        out.extend([field.transformation_options, trans_ix,
+                    field.transformation_is_disabled])
+        out.extend([field.aggregation_options, agg_ix,
+                    field.aggregation_is_disabled])
+
+        chk_disabled = not field.has_dim_lkp
+        out.append([{'label': '', 'value': 1, 'disabled': chk_disabled}])
+        out.append([1] if chkmark else [])  # checklist value
+        # print(out)
+        return out
+    return update_dds
+
+
+for i in range(num_secondary):
+    update_dds = _generate_update_dds_secondary(i)
+    app.callback(secondary_outs[i],
+                 [Input(f'dropdown-{i}', 'value')],
+                 [State(f'stack-{i}', 'data'),
+                  State(f'stack-{i}', 'modified_timestamp')])(update_dds)
 
 
 # --------- RUN APP -------------------------------------------------

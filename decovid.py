@@ -54,7 +54,7 @@ opts_primary = (
                aggregations=[None, 'avg']),
 )
 
-standard_concept = "{alias}.standard_concept = 'S'"   # WHERE clause for CONCEPT table
+standard_concept = "{alias:s}standard_concept = 'S'"   # WHERE clause for CONCEPT table
 opts_split = (
     UserOption('age', '2020 - {alias:s}year_of_birth', Person, context,
                transformations=[None, 'Tens'], field_alias='age'),

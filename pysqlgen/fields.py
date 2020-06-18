@@ -202,7 +202,9 @@ class UserOption:
         else:
             name, table = self.lkp_field, self.dimension_table
             name = '{alias:s}' + name
-            where.append(self.dim_where)   # is filtered if None in class method
+            if self.dim_where is not None:
+                dimension_where = self.dim_where.format(alias=alias)
+                where.append(dimension_where)
         name = name.format(alias=alias)
         datefield = self.table.primary_date_field
 

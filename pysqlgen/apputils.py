@@ -1,3 +1,4 @@
+from dash import callback_context
 from .utils import sync_index, get_nth_chunk
 
 
@@ -101,3 +102,13 @@ def find_in_item_names(query, user_opts, error_about='list'):
         return [x.item.lower() for x in user_opts].index(query)
     except ValueError as e:
         raise ValueError(f'Standard query: Cannot find in {error_about}: {query}')
+
+
+def get_trigger(default=None):
+    # what called the function?
+    ctx = callback_context
+    if not ctx.triggered:
+        trigger_id = default
+    else:
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    return trigger_id

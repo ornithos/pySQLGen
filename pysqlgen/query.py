@@ -122,7 +122,6 @@ class StmtFrom(OrderedDict):
 
     def generate_statement(self):
         assert self.generated is not None, "Please run 'generate_basic_statement' first."
-        print(self.additional_lkps)
         generated = self.generated
         if self.additional_lkps is not None:
             generated += ('\n' + self.additional_lkps)
