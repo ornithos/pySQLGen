@@ -70,6 +70,7 @@ def app_state_to_opts(args, primary_fields, secondary_fields):
             continue   # user has [x] the current item and hit submit without selecting.
         elif selected.item_id > 0:
             opt = secondary_fields[selected.item_id - 1].copy()
+            opt.is_secondary = True
         else:
             continue
 
@@ -112,3 +113,51 @@ def get_trigger(default=None):
     else:
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
     return trigger_id
+
+
+# ########################### RE STANDARD QUERIES ##################################
+
+
+def standard_query_to_panel_indices(query, primary_opts, secondary_opts,
+                                    secondary_appends_none=True, as_obj=False):
+    # primary
+    primary_row = RowOptionsSelected(3)
+    ix = 0
+    primary_row.item_id = find_in_item_names(query[ix][0].lower(), primary_opts,
+                                             error_about="primary options")
+    chosen_field = primary_opts[primary_row.item_id]
+    primary_row.trans_id = chosen_field.transformations.index(query[ix][1])
+    primary_row.agg_id = chosen_field.aggregations.index(query[ix][2])
+    out = primary_row.to_list()
+    out_obj = [primary_row]
+
+    # secondary
+    num_secondary = len(query) - 1
+    for i in range(num_secondary):
+        ix = i + 1
+        secondary_row = RowOptionsSelected(4)
+        secondary_row.item_id = find_in_item_names(query[ix][0].lower(),
+                                                   secondary_opts,
+                                                   error_about="secondary options")
+        chosen_field = secondary_opts[secondary_row.item_id]
+        if secondary_appends_none:
+            # If UI appends an additional <None> field to possible fieldnames.
+            # Note that we must therefore increment *AFTER* we've selected from opts above
+            secondary_row.item_id += 1
+        secondary_row.trans_id = chosen_field.transformations.index(query[ix][1])
+        secondary_row.agg_id = chosen_field.aggregations.index(query[ix][2])
+        secondary_row.perform_lkp = query[ix][3]
+        out.extend(secondary_row.to_list())
+        out_obj.append(secondary_row)
+
+    return out_obj if as_obj else out
+
+
+def get_query_from_index(i, queries):
+    q_txt = list(queries.keys())[i]
+    return queries[q_txt]
+
+
+def standard_query_to_opts(query, primary_opts, secondary_opts):
+    indices = standard_query_to_panel_indices(query, primary_opts, secondary_opts)
+    return app_state_to_opts(indices, primary_opts, secondary_opts)

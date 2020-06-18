@@ -1,0 +1,4 @@
+length_of_stay: >-
+    CASE WHEN {alias:s}visit_end_datetime IS NOT NULL THEN
+        DATEDIFF(DAY,  {alias:s}visit_start_datetime, {alias:s}visit_end_datetime)
+        ELSE NULL END

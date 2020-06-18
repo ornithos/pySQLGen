@@ -2,12 +2,13 @@ import dash
 import dash_core_components as dcc
 import dash_html_components as html
 from dash.dependencies import Input, Output, State
-from pysqlgen.apputils import app_state_to_opts, get_trigger
+from pysqlgen.apputils import app_state_to_opts, get_trigger, \
+    standard_query_to_panel_indices, standard_query_to_opts, get_query_from_index
 from pysqlgen.utils import not_none, cur_time_ms
+import pysqlgen.query
 
 import decovid
-from decovidqueries import standard_queries, standard_query_to_panel_indices, \
-    standard_query_to_opts, get_query_from_index
+from decovid import standard_queries
 
 # --------- "GLOBALS" -------------------------------------------------
 main_text_style = {'text-align': 'center', 'max-width': '800px', 'margin': 'auto'}
@@ -23,7 +24,7 @@ main_div_style = {'margin':'auto', 'padding-left': '100px', 'padding-right': '10
 primary_fields = decovid.opts_primary
 primary_fields[0].set_aggregation('count')
 secondary_fields = decovid.opts_split
-debug_ui = True
+debug_ui = False
 print("BEGIN")
 
 # --------- DEFINE INPUT ----------------------------------------------
@@ -93,10 +94,18 @@ secondary_stacks = [dcc.Store(id=f'stack-{i}') for i in range(num_secondary)]
 introduction = '''
 ### SQL Generation for OMOP Data
 
-For the purposes of this demonstration, we will assume one wants to aggregate some
-features of EHR data to a person level from an OMOP standard database.
+This tool performs SQL generation in a flexible way for a restricted subset of possible
+SQL queries. Some 'standard queries' are available in the first dropdown on the left.
+When such a query is selected, it generates the SQL and propagates the specification
+to the dropdowns below. The query can then be customised by adding in additional fields
+or changing existing ones.
 
-See the drop-down menus on the left to select your query, 
+The 'primary variable' is the key quantity
+one wishes to aggregate over. (If no aggregation is desired, there is no difference
+between primary/secondary variables.) Any aggregation specified of the 'secondary
+variables' will be performed in a subquery, prior to the primary aggregation. While 
+a restricted subset of OMOP variables are populated at present, it is straightforward to
+add more.
 '''
 
 
@@ -210,7 +219,7 @@ def update_output(n_clicks1, n_clicks2, *args):
     print(use_opts)
     if len(use_opts) > 0:
         print(f"Create query with {len(use_opts)} fields selected")
-        sql = decovid.construct_query(*use_opts)
+        sql = pysqlgen.query.construct_query(*use_opts)
     else:
         sql = "\n\n~~~~ NO VARIABLES SELECTED ~~~~~\n\n"
 
@@ -388,13 +397,3 @@ for i in range(num_secondary):
 if __name__ == '__main__':
     app.run_server(debug=True)
 
-
-
-
-"""
-TODO:
-=============
-* problem if "Name" unavailable and was previously ticked -> gets locked and breaks.
-* transformation --> aggregation via subqueries if necessary.
-
-"""

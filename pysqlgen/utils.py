@@ -1,14 +1,5 @@
-from .dbtree import SchemaNode
 import re
 import time
-
-def is_node(x, allow_custom=False):
-    if isinstance(x, SchemaNode):
-        return True
-    elif allow_custom and isinstance(x, str):
-        return x.lower() == "custom"
-    else:
-        return False
 
 
 def node_isin_context(x, context, allow_custom=False, allow_None=False):

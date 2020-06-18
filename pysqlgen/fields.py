@@ -17,7 +17,7 @@ class UserOption:
                  table, context,
                  transformations=[None], aggregations=[None],
                  default_transformation=None, default_aggregation=None,
-                 field_alias=None, sql_where=None,
+                 field_alias=None, sql_where=None, is_secondary=False,
                  dimension_table=None, dim_where=None, perform_lkp=False, lkp_field=None,
                  verbose=True):
         assert isinstance(context, DBMetadata), "context is not a DBContext object"
@@ -60,8 +60,12 @@ class UserOption:
 
         self.item = item
         self.sql_item = sql_item
-        self.field_alias = field_alias
+        self._field_alias = field_alias
+        self.sql_where = sql_where
+        self.is_secondary = is_secondary
         self.context = context
+        self.verbose = verbose
+
         self.transformations = [None if t is None else t.lower() for t in transformations]
         self.default_transformation = default_transformation
         self.selected_transform = default_transformation
@@ -69,10 +73,10 @@ class UserOption:
         self.aggregations = [None if t is None else t.lower() for t in aggregations]
         self.default_aggregation = default_aggregation
         self.selected_aggregation = default_aggregation
+
         self.table = table if isinstance(table, SchemaNode) else table.title()
         self.dimension_table = dimension_table
         self._perform_lkp = perform_lkp
-        self.sql_where = sql_where
         self.dim_where = dim_where
 
         if dimension_table is not None:
@@ -164,6 +168,23 @@ class UserOption:
         if self.table == 'Custom':
             return '(\n' + self.context.custom_tables[self.item] + '\n)'
         return self.table
+
+    @property
+    def field_alias(self):
+        if self._field_alias is None:
+            field_alias = str_to_fieldname(self.item)
+            field_alias += '_id' if (self.has_dim_lkp and not self.perform_lkp) else ''
+        else:
+            field_alias = self._field_alias
+        if self.has_aggregation and self._field_alias is None:
+            agg_prefix = self.selected_aggregation.lower().strip()
+            agg_prefix = self.context.agg_alias_lkp.get(agg_prefix, agg_prefix)
+            field_alias = agg_prefix + '_' + field_alias
+        return field_alias
+
+    @field_alias.setter
+    def field_alias(self, value):
+        self._field_alias = value
 
     def __copy__(self):
         obj = type(self).__new__(self.__class__)
@@ -262,20 +283,12 @@ class UserOption:
                          f'Trying {a.upper()}')
                 sel = '{:s}({:s})'.format(a.upper(), sel)
 
-        # _____________________ Get field alias ________________________________________
-        if self.field_alias is None:
-            field_alias = str_to_fieldname(self.item)
-            field_alias += '_id' if (self.has_dim_lkp and not self.perform_lkp) else ''
-        else:
-            field_alias = self.field_alias
-        if self.has_aggregation and self.field_alias is None:
-            field_alias = self.selected_aggregation.lower().strip() + '_' + field_alias
-
         # ________________ Coalesce with default (if left join) _______________________
         if coalesce is not None:
             sel = f"COALESCE({sel}, '{coalesce}')"
 
-        sel += f' AS {field_alias}'
+        if self._field_alias != '':
+            sel += f' AS {self.field_alias}'
         return sel, where
 
 

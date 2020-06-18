@@ -1,15 +1,19 @@
+from .utils import str_to_fieldname
+
 class DBMetadata:
     """
     DBMetadata: storage for the DB graph ('nodes'), any custom table SQL, and
     the lists of allowed AGGREGATIONS and TRANSFORMATIONS.
     """
-    def __init__(self, nodes, custom_tables, schema, AGGREGATIONS, TRANSFORMATIONS):
+    def __init__(self, nodes, custom_tables, schema, AGGREGATIONS, TRANSFORMATIONS,
+                 coalesce_default='Unknown', agg_alias_lkp=None):
         self.nodes = nodes
         self.custom_tables = custom_tables
         self.AGGREGATIONS = AGGREGATIONS
         self.TRANSFORMATIONS = TRANSFORMATIONS
         self.schema = schema
-        self.coalesce_default = 'Unknown'
+        self.coalesce_default = coalesce_default
+        self.agg_alias_lkp = agg_alias_lkp if not None else dict()
 
 
 class SchemaNode:
@@ -36,6 +40,7 @@ class SchemaNode:
         self.primary_date_field = datefield
         self.default_lkp = default_lkp     # if used as a Dimension table
         self.schema = schema
+        self.is_cte = False
 
     def __repr__(self):
         return f'{self.name} Table <SchemaNode with parent {self.parent}>'
@@ -71,6 +76,30 @@ class SchemaNode:
         return out if internal else (out[0][0], out[1:])
 
 
+class CTENode(SchemaNode):
+    def __init__(self, parent, pk, fields, default_lkp=None):
+        assert isinstance(fields, list), "fields must be a list of UserOptions"
+
+        agg_fields = [x.item for x in fields if x.has_aggregation]
+        name = '_'.join([str_to_fieldname(x) for x in agg_fields]) + '_agg'
+
+        self.name = name
+        self.parent = parent
+        self.pk = pk
+        self.fks = []
+        self.fields = fields
+        self.primary_date_field = None
+        self.default_lkp = default_lkp     # if used as a Dimension table
+        self.schema = ''
+        self.is_cte = True
+
+    def __repr__(self):
+        return f'{self.name} Table <CTENode with parent {self.parent}>'
+
+    def __str__(self):
+        return f'{self.name} Table with fields: {[x.item for x in self.fields.keys()]}'
+
+
 def topological_sort(nodes, return_perm=False):
     """
     This MASSIVELY takes advantage of an assumed star schema.
@@ -85,3 +114,11 @@ def topological_sort(nodes, return_perm=False):
     sort_perm = sorted(range(len(level)), key=lambda k: level[k])
     return [nodes[i] for i in sort_perm] if not return_perm else sort_perm
 
+
+def is_node(x, allow_custom=False):
+    if isinstance(x, SchemaNode):
+        return True
+    elif allow_custom and isinstance(x, str):
+        return x.lower() == "custom"
+    else:
+        return False

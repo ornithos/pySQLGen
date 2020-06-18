@@ -1,7 +1,9 @@
+import yaml, json
+from collections import OrderedDict
 from pysqlgen.dbtree import *
 from pysqlgen.fields import UserOption
-from pysqlgen.query import construct_query
 
+# ########################## OBJECTS REFLECTING DATABASE ##############################
 # ~~~~~~~~~~~~~~~~~~~~ Define Schema ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Person = SchemaNode('Person', None, 'person_id',
                     ['Visit_Detail', 'Visit_Occurrence',
@@ -38,11 +40,20 @@ custom_tables['first admission date'] = custom_admission_date
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # Construct metadata
-AGGREGATIONS = ['rows', 'count', 'avg', 'sum', 'max', 'min']
-TRANSFORMATIONS = ['not null', 'day', 'week', 'month', 'first', 'tens']
+AGGREGATIONS = ['rows', 'count', 'avg', 'sum', 'max', 'min', 'first', 'last']
+TRANSFORMATIONS = ['not null', 'day', 'week', 'month', 'tens']
 schema = 'public'   # name of schema within DB
-context = DBMetadata(nodes, custom_tables, schema, AGGREGATIONS, TRANSFORMATIONS)
 
+agg_name_alias = dict(rows='num')  # For automatically constructed field names
+coalesce_default = 'Unknown'       # 'NULL' value representation.
+context = DBMetadata(nodes, custom_tables, schema, AGGREGATIONS, TRANSFORMATIONS,
+                     coalesce_default=coalesce_default, agg_alias_lkp=agg_name_alias)
+
+
+# ################################# QUERY FIELDS #######################################
+
+with open("select_statements.yaml", "r") as f:
+    select_fragments = yaml.load(f, Loader=yaml.CLoader)
 
 # Define options for user selection
 opts_primary = (
@@ -50,8 +61,8 @@ opts_primary = (
                aggregations=[None, 'rows', 'count'], default_aggregation='count'),
     UserOption('measurement_types', '{alias:s}measurement_concept_id', Measurement,
                context, aggregations=[None, 'rows', 'count']),
-    UserOption('length_of_stay', '{alias:s}length_of_stay', 'custom', context,
-               aggregations=[None, 'avg']),
+    # UserOption('length_of_stay', '{alias:s}length_of_stay', 'custom', context,
+    #            aggregations=[None, 'avg']),
 )
 
 standard_concept = "{alias:s}standard_concept = 'S'"   # WHERE clause for CONCEPT table
@@ -71,10 +82,10 @@ opts_split = (
     UserOption('discharge type', '{alias:s}discharge_to_concept_id',
                Visit_Occurrence, context,
                dimension_table=Concept, perform_lkp=True, dim_where=standard_concept),
-    # UserOptionSplit('first admission date', '{alias:s}admission_date',
-    #                 'custom', context),   # <--- STILL NEED TO ADD IN CUSTOM TABLES INTO JOIN LOGIC
-                                            #      N.B. How to do graph traversal when custom tables
-                                            #      are not part of the schema model?
+    UserOption('visit start date', '{alias:s}visit_start_datetime', Visit_Occurrence,
+               context, aggregations=[None, 'rows']),
+    UserOption('length of stay', select_fragments['length_of_stay'], Visit_Occurrence,
+               context, aggregations=[None, 'avg']),
     UserOption('care site', '{alias:s}care_site_id', Visit_Detail, context,
                dimension_table=Care_Site, perform_lkp=True),
     UserOption('death', '{alias:s}death_date', Death, context,
@@ -82,6 +93,12 @@ opts_split = (
                default_transformation='week'),
 )
 
+
+# ############################## STANDARD QUERIES ########################################
+
+
+with open("standard_queries.json", 'r') as f:
+    standard_queries = json.JSONDecoder(object_pairs_hook=OrderedDict).decode(f.read())
 
 # agg_opt = opts_aggregation[0]
 # agg_opt.set_aggregation('count')

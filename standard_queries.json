@@ -1,0 +1,28 @@
+{
+  "Distribution of Sex": [
+    ["Person", null, "count"],
+    ["Sex", null, null, true]
+  ],
+  "Distribution of Age": [
+    ["Person", null, "count"],
+    ["Age", "tens", null, false]
+  ],
+  "Distribution of Age/Sex/Race": [
+    ["Person", null, "count"],
+    ["Age", "tens", null, false],
+    ["Sex", null, null, true],
+    ["Race", null, null, true]
+   ],
+  "Distribution of length of stay": [
+    ["Person", null, "count"],
+    ["length of stay", null, null, false]
+  ],
+  "Number of visits per person": [
+    ["Person", null, "count"],
+    ["visit start date", null, "rows", false]
+  ],
+  "Care sites by average length of stay": [
+    ["Person", null, "count"],
+    ["length of stay", null, "avg", false]
+  ]
+}
