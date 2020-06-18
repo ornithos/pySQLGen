@@ -18,7 +18,7 @@ class UserOption:
                  transformations=[None], aggregations=[None],
                  default_transformation=None, default_aggregation=None,
                  field_alias=None, sql_where=None,
-                 dimension_table=None, perform_lkp=False, lkp_field=None,
+                 dimension_table=None, dim_where=None, perform_lkp=False, lkp_field=None,
                  verbose=True):
         assert isinstance(context, DBMetadata), "context is not a DBContext object"
         assert is_node(table, allow_custom=True), \
@@ -73,6 +73,7 @@ class UserOption:
         self.dimension_table = dimension_table
         self._perform_lkp = perform_lkp
         self.sql_where = sql_where
+        self.dim_where = dim_where
 
         if dimension_table is not None:
             if lkp_field is not None:
@@ -194,12 +195,14 @@ class UserOption:
 
         assert isinstance(self, UserOption), "opt is not a UserOption"
 
+        where = []  # initialise empty where clause
         alias = '' if (alias is None or len(alias) == 0) else alias + '.'
         if not self.perform_lkp:
             name, table = self.sql_item, self.table
         else:
             name, table = self.lkp_field, self.dimension_table
             name = '{alias:s}' + name
+            where.append(self.dim_where)   # is filtered if None in class method
         name = name.format(alias=alias)
         datefield = self.table.primary_date_field
 
@@ -208,7 +211,6 @@ class UserOption:
         assert dialect in ["msss",
                            "postgres"], "dialect must be 'MSSS' (SQL Server) or 'Postgres'"
 
-        where = ''
         sel = f'{name}'
         # _____________________ TRANSFORMATION _________________________________________
 
@@ -233,7 +235,7 @@ class UserOption:
             elif t == 'first':
                 assert table.num_parents() < 2, "can only use 'first' on tables which join to the Person table."
                 sel = f'{name:s}'
-                where = 'ROW_NUMBER() OVER (PARTITION BY person_id ORDER BY {datefield:s}) = 1'
+                where.append('ROW_NUMBER() OVER (PARTITION BY person_id ORDER BY {datefield:s}) = 1')
             elif t == 'tens':
                 if dialect == 'msss':
                     sel = f"CAST((({name}) / 10)*10 AS VARCHAR) + '-' +\n" + " "*10 + \

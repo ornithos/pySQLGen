@@ -47,10 +47,10 @@ class StmtGeneric(UserList):
         self.wrappers = wrappers
 
     def generate_statement(self):
-        if len(self) == 0:
+        lines = list(filter(lambda x: x is not None, self))
+        if len(lines) == 0:
             return ''
         length = len(self.statement) + 1
-        lines = list(self)
         if self.wrappers:
             lines = [self.wrappers[0] + l + self.wrappers[1] for l in lines]
         return f'{self.statement} ' + \
@@ -207,7 +207,7 @@ def construct_query(*args, dialect='MSSS'):
         stmt.select.append(sel)
         # WHERE
         if len(where) > 0:
-            stmt.where.append(where)
+            stmt.where.extend(where)
         # GROUP BY
         if has_agg and not o.has_aggregation:
             gby = re.sub('AS [a-zA-Z0-9_]+$', '', sel).strip()

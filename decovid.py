@@ -54,19 +54,23 @@ opts_primary = (
                aggregations=[None, 'avg']),
 )
 
+standard_concept = "{alias}.standard_concept = 'S'"   # WHERE clause for CONCEPT table
 opts_split = (
     UserOption('age', '2020 - {alias:s}year_of_birth', Person, context,
                transformations=[None, 'Tens'], field_alias='age'),
     UserOption('sex', '{alias:s}gender_concept_id', Person, context,
-               dimension_table=Concept, perform_lkp=True),
+               dimension_table=Concept, perform_lkp=True, dim_where=standard_concept),
     UserOption('race', '{alias:s}race_concept_id', Person, context,
-               dimension_table=Concept, perform_lkp=True),
+               dimension_table=Concept, perform_lkp=True, dim_where=standard_concept),
     UserOption('visit type', '{alias:s}visit_concept_id',
-               Visit_Occurrence, context, dimension_table=Concept, perform_lkp=True),
+               Visit_Occurrence, context,
+               dimension_table=Concept, perform_lkp=True, dim_where=standard_concept),
     UserOption('admission type', '{alias:s}admitting_source_concept_id',
-               Visit_Occurrence, context, dimension_table=Concept, perform_lkp=True),
+               Visit_Occurrence, context,
+               dimension_table=Concept, perform_lkp=True, dim_where=standard_concept),
     UserOption('discharge type', '{alias:s}discharge_to_concept_id',
-               Visit_Occurrence, context, dimension_table=Concept, perform_lkp=True),
+               Visit_Occurrence, context,
+               dimension_table=Concept, perform_lkp=True, dim_where=standard_concept),
     # UserOptionSplit('first admission date', '{alias:s}admission_date',
     #                 'custom', context),   # <--- STILL NEED TO ADD IN CUSTOM TABLES INTO JOIN LOGIC
                                             #      N.B. How to do graph traversal when custom tables
