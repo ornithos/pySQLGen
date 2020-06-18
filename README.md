@@ -1,8 +1,9 @@
 ## PySQLGen
 
-[![Heroku](http://heroku-badge.herokuapp.com/?app=angularjs-crypto&style=flat&svg=1&root=index.html)](https://sqlgen.herokuapp.com/)
+[![Heroku](http://heroku-badge.herokuapp.com/?app=sqlgen&style=flat&svg=1&root=index.html)](https://sqlgen.herokuapp.com/)
 
-A stump of a project to generate (fairly straightforward) SQL for a given schema. This is a sketch of an effort that may be useful for the [DECOVID](https://www.decovid.org/) project, and is currently being tested on data following the [OMOP schema](https://ohdsi.github.io/TheBookOfOhdsi/CommonDataModel.html).
+A stump of a project to generate (fairly straightforward) SQL for a given schema. This is a sketch of an effort that may be useful for the [DECOVID](https://www.decovid.org/) project, and is currently being tested on data following the [OMOP schema](https://ohdsi.github.io/TheBookOfOhdsi/CommonDataModel.html). See the [`heroku`](
+Heroku: Cloud Application Platformwww.heroku.com) deployment (above) for an example.
 
 Currently support:
 
