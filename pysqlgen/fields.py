@@ -1,7 +1,8 @@
 import copy
+import yaml
+from warnings import warn
 from .utils import *
 from .dbtree import *
-from warnings import warn
 
 
 class UserOption:
@@ -25,10 +26,6 @@ class UserOption:
             "Please ensure the table is a SchemaNode object or the string 'custom'."
         assert node_isin_context(table, context, allow_custom=True), \
             f"Specified table '{table}' is not available in 'context'."
-        assert in_list(default_transformation, transformations, allow_None=True),\
-            "default transformation must be in list of possible transformations."
-        assert in_list(default_aggregation, aggregations, allow_None=True), \
-            "default aggregation must be in list of possible aggregations."
         assert node_isin_context(dimension_table, context, allow_None=True), \
             f"Specified dimension table '{table}' is not available in 'context'."
 
@@ -67,12 +64,15 @@ class UserOption:
         self.verbose = verbose
 
         self.transformations = [None if t is None else t.lower() for t in transformations]
-        self.default_transformation = default_transformation
-        self.selected_transform = default_transformation
+        _def_trans = default_transformation if default_transformation in \
+                                               self.transformations \
+                                            else self.transformations[0]
+        self.default_transformation = _def_trans
+        self.set_transform(_def_trans)
 
         self.aggregations = [None if t is None else t.lower() for t in aggregations]
         self.default_aggregation = default_aggregation
-        self.selected_aggregation = default_aggregation
+        self.set_aggregation(default_aggregation)
 
         self.table = table if isinstance(table, SchemaNode) else table.title()
         self.dimension_table = dimension_table
@@ -186,13 +186,15 @@ class UserOption:
     def field_alias(self, value):
         self._field_alias = value
 
-    def __copy__(self):
+    def __copy__(self, set_item_name=None):
         obj = type(self).__new__(self.__class__)
         obj.__dict__.update(self.__dict__)
+        if set_item_name:
+            obj.item = set_item_name
         return obj
 
-    def copy(self):
-        return copy.copy(self)
+    def copy(self, set_item_name=None):
+        return self.__copy__(set_item_name=set_item_name)
 
     def __repr__(self):
         return f'UserOption({hex(id(self))}, {self.item}, tf={self.selected_transform}, ' + \
@@ -296,3 +298,41 @@ class UserOptionCompound(UserOption):
     pass
 
 # e.g. discharge type including death and C19 status.
+
+
+def read_all_fields_from_yaml(filename, context, tbl_lkp, dim_lkp_where=None):
+    with open(filename, "r") as f:
+        fields_data = yaml.load(f, Loader=yaml.CLoader)
+
+    all_fields = dict()
+    for tbl_nm, tbl in tbl_lkp.items():
+        items_in_tbl = fields_data.get(tbl_nm, [])
+        if len(items_in_tbl) == 0:
+            # No items for Table in YAML file.
+            continue
+        for field_nm, payload in items_in_tbl.items():
+            if (len(payload) == 5) and payload[4] is not None:
+                # IGNORE
+                continue
+            stmt = payload[0]
+            has_transforms = (len(payload) > 1) and (payload[1] is not None)
+            transformations = payload[1] if has_transforms else [None]
+            has_aggregations = (len(payload) > 2) and (payload[2] is not None)
+            aggregations = payload[2] if has_aggregations else [None]
+            if len(payload) > 3:
+                lkp_tbl, lkp_def, lkp_where = payload[3]
+                lkp_tbl = tbl_lkp[lkp_tbl]
+                if lkp_where is not None and lkp_where[0] == '$':
+                    assert dim_lkp_where is not None, "dim_lkp_where must be specified."
+                    lkp_where = dim_lkp_where[lkp_where[1:]]
+            else:
+                lkp_tbl, lkp_def, lkp_where = None, None, None
+            field = UserOption(field_nm, stmt, tbl, context,
+                               transformations=transformations,
+                               aggregations=aggregations,
+                               dimension_table=lkp_tbl,
+                               perform_lkp=lkp_def,
+                               dim_where=lkp_where)
+            all_fields[field_nm] = field
+
+    return all_fields

@@ -1,7 +1,7 @@
 import yaml, json
 from collections import OrderedDict
 from pysqlgen.dbtree import *
-from pysqlgen.fields import UserOption
+from pysqlgen.fields import *
 
 # ########################## OBJECTS REFLECTING DATABASE ##############################
 # ~~~~~~~~~~~~~~~~~~~~ Define Schema ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -25,6 +25,7 @@ Measurement = SchemaNode('Measurement', Person, 'person_id', [], [],
 Concept = SchemaNode('Concept', None, 'concept_id', [], ['concept_id'], None,
                      default_lkp='concept_name')
 nodes = [Person, Visit_Detail, Care_Site, Visit_Occurrence, Death, Measurement, Concept]
+node_lkp = {n.name: n for n in nodes}
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # ~~~~~~~~~~~~~~~~~~~~ Custom Tables ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -49,49 +50,59 @@ coalesce_default = 'Unknown'       # 'NULL' value representation.
 context = DBMetadata(nodes, custom_tables, schema, AGGREGATIONS, TRANSFORMATIONS,
                      coalesce_default=coalesce_default, agg_alias_lkp=agg_name_alias)
 
+# ############################ GET ALL QUERY FIELDS #####################################
 
-# ################################# QUERY FIELDS #######################################
+dim_lkp_where = dict()
+dim_lkp_where['standard'] = "{alias:s}standard_concept = 'S'"
 
-with open("select_statements.yaml", "r") as f:
-    select_fragments = yaml.load(f, Loader=yaml.CLoader)
+# Read all field definitions (incl transforms/aggs/lkps) from YAML file.
+all_fields = read_all_fields_from_yaml("db_fields.yaml", context, tbl_lkp=node_lkp,
+                                       dim_lkp_where=dim_lkp_where)
 
-# Define options for user selection
+
+# Create options for primary variable
+# -------------------------------------------------------------------------
+
 opts_primary = (
-    UserOption('person', '{alias:s}person_id', Person, context,
-               aggregations=[None, 'rows', 'count'], default_aggregation='count'),
-    UserOption('measurement_types', '{alias:s}measurement_concept_id', Measurement,
-               context, aggregations=[None, 'rows', 'count']),
-    # UserOption('length_of_stay', '{alias:s}length_of_stay', 'custom', context,
-    #            aggregations=[None, 'avg']),
+    all_fields['person_id'].copy(set_item_name='person'),
+    all_fields['measurement_type'].copy(set_item_name='measurement type')
 )
 
-standard_concept = "{alias:s}standard_concept = 'S'"   # WHERE clause for CONCEPT table
-opts_split = (
-    UserOption('age', '2020 - {alias:s}year_of_birth', Person, context,
-               transformations=[None, 'Tens'], field_alias='age'),
-    UserOption('sex', '{alias:s}gender_concept_id', Person, context,
-               dimension_table=Concept, perform_lkp=True, dim_where=standard_concept),
-    UserOption('race', '{alias:s}race_concept_id', Person, context,
-               dimension_table=Concept, perform_lkp=True, dim_where=standard_concept),
-    UserOption('visit type', '{alias:s}visit_concept_id',
-               Visit_Occurrence, context,
-               dimension_table=Concept, perform_lkp=True, dim_where=standard_concept),
-    UserOption('admission type', '{alias:s}admitting_source_concept_id',
-               Visit_Occurrence, context,
-               dimension_table=Concept, perform_lkp=True, dim_where=standard_concept),
-    UserOption('discharge type', '{alias:s}discharge_to_concept_id',
-               Visit_Occurrence, context,
-               dimension_table=Concept, perform_lkp=True, dim_where=standard_concept),
-    UserOption('visit start date', '{alias:s}visit_start_datetime', Visit_Occurrence,
-               context, aggregations=[None, 'rows']),
-    UserOption('length of stay', select_fragments['length_of_stay'], Visit_Occurrence,
-               context, aggregations=[None, 'avg']),
-    UserOption('care site', '{alias:s}care_site_id', Visit_Detail, context,
-               dimension_table=Care_Site, perform_lkp=True),
-    UserOption('death', '{alias:s}death_date', Death, context,
-               transformations=['not null', 'day', 'week', 'month'],
-               default_transformation='week'),
-)
+
+# Create options for secondary variables
+# -------------------------------------------------------------------------
+
+opts_secondary = [
+    all_fields['age'].copy(),
+    all_fields['sex'].copy(),
+    all_fields['race'].copy(),
+    all_fields['visit_type'].copy(set_item_name='visit type'),
+    all_fields['admission_type'].copy(set_item_name='admission type'),
+    all_fields['visit_start_date'].copy(set_item_name='visit start date'),
+    all_fields['length_of_stay'].copy(set_item_name='length of stay'),
+    all_fields['care_site'].copy(set_item_name='care site'),
+    all_fields['death']
+]
+
+
+# ############################## DEFAULTS ###############################################
+
+default_transformations = dict()
+default_aggregations = dict()
+default_transformations['death'] = ['week', 'secondary']
+
+for i, opts in enumerate([opts_primary, opts_secondary]):
+    for opt in opts:
+        if opt.item in default_transformations:
+            trans = default_transformations[opt.item]
+            if trans[1] != ['primary', 'secondary'][i]:
+                continue
+            opt.set_transform(trans[0])
+        if opt.item in default_aggregations:
+            agg = default_aggregations[opt.item]
+            if agg[1] != ['primary', 'secondary'][i]:
+                continue
+            opt.set_aggregation(agg[0])
 
 
 # ############################## STANDARD QUERIES ########################################

@@ -23,7 +23,7 @@ main_div_style = {'margin':'auto', 'padding-left': '100px', 'padding-right': '10
 # --------- DATA ------------------------------------------------------
 primary_fields = decovid.opts_primary
 primary_fields[0].set_aggregation('count')
-secondary_fields = decovid.opts_split
+secondary_fields = decovid.opts_secondary
 debug_ui = False
 print("BEGIN")
 

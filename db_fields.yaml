@@ -1,0 +1,77 @@
+---
+# Fields are listed under the OMOP table in which they are found.
+# Each field has (up to) five attributes:
+# 1. The SQL statement corresponding to the field (often just the field name)
+# 2. A list of possible *TRANSFORMATIONS*
+# 3. A list of possible *AGGREGATIONS*
+# 4. If the field is an ID, the quantities needed to look it up:
+#     [Lookup_Table, {Lookup by default?}, WHERE clause for lookup]
+# 5. IGNORE flag (any non-null value will do). This will not be read into the dashboard.
+
+Person:
+    person_id:
+      - "{alias:s}person_id"
+      -
+      - [~, rows, count]
+    age:
+      - "2020 - {alias:s}year_of_birth"
+      - [~, Tens]
+    race:
+      - "{alias:s}race_concept_id"
+      -
+      -
+      - [Concept, True, $standard]
+    sex:
+      - "{alias:s}gender_concept_id"
+      -
+      -
+      - [Concept, True, $standard]
+
+
+Visit_Occurrence:
+    visit_type:
+      - "{alias:s}visit_concept_id"
+      -
+      -
+      - [Concept, True, $standard]
+    admission_type:
+      - "{alias:s}admitting_source_concept_id"
+      -
+      -
+      - [Concept, True, $standard]
+    discharge_type:
+      - "{alias:s}discharge_to_concept_id"
+      -
+      -
+      - [Concept, True, $standard]
+    visit_start_date:
+      - "{alias:s}visit_start_datetime"
+      -
+      - [~, rows]
+    length_of_stay:
+      - "CASE WHEN {alias:s}visit_end_datetime IS NOT NULL THEN \n
+        DATEDIFF(DAY,  {alias:s}visit_start_datetime, {alias:s}visit_end_datetime) \n
+        ELSE NULL END"
+      -
+      - [~, avg]
+
+
+Visit_Detail:
+    care_site:
+      - "{alias:s}care_site_id"
+      -
+      -
+      - [Care_Site, True, ~]
+
+Death:
+    death:
+      - "{alias:s}death_date"
+      - [not null, day, week, month]
+
+
+Measurement:
+    measurement_type:
+      - "{alias:s}measurement_concept_id"
+      -
+      - [~, rows, count]
+      - [Concept, True, $standard]
