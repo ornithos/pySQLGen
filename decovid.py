@@ -2,29 +2,32 @@ import yaml, json
 from collections import OrderedDict
 from pysqlgen.dbtree import *
 from pysqlgen.fields import *
+from pysqlgen.query import construct_query
 
 # ########################## OBJECTS REFLECTING DATABASE ##############################
 # ~~~~~~~~~~~~~~~~~~~~ Define Schema ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Person = SchemaNode('Person', None, 'person_id',
-                    ['Visit_Detail', 'Visit_Occurrence',
-                     'Death', 'Measurement'],
+Person = SchemaNode('Person', [], ['person_id'],
                     ['person_id'], None)
-Visit_Detail = SchemaNode('Visit_Detail', Person, 'visit_detail_id',
-                          ['Care_Site'],
-                          ['care_site_id', 'person_id'],
-                          'visit_start_date')
-Care_Site = SchemaNode('Care_Site', Visit_Detail, 'care_site_id', [], [], None,
+Visit_Occurrence = SchemaNode('Visit_Occurrence', [Person],
+                              ['visit_occurrence_id', 'person_id'],
+                              [], 'visit_start_datetime')
+Visit_Detail = SchemaNode('Visit_Detail', [Visit_Occurrence, Person],
+                          ['visit_detail_id', 'visit_occurrence_id', 'person_id'],
+                          ['care_site_id'], 'visit_start_date')
+Care_Site = SchemaNode('Care_Site', [Visit_Detail], ['care_site_id'], [], None,
                        default_lkp='care_site_name')
-Visit_Occurrence = SchemaNode('Visit_Occurrence', Person, 'visit_occurrence_id',
-                              [], ['person_id'],
-                              'visit_start_datetime')
-Death = SchemaNode('Death', Person, 'person_id', [], [], 'death_date')
-Measurement = SchemaNode('Measurement', Person, 'person_id', [], [],
-                         'measurement_datetime')
+Death = SchemaNode('Death', [Person], ['person_id'], [], 'death_date')
+Measurement = SchemaNode('Measurement', [Visit_Detail, Visit_Occurrence, Person],
+                         ['person_id', 'visit_occurrence_id', 'visit_detail_id'],
+                         [], 'measurement_datetime')
+Drug_Exposure = SchemaNode('Drug_Exposure', [Visit_Detail, Visit_Occurrence, Person],
+                           ['person_id', 'visit_occurrence_id', 'visit_detail_id'],
+                           [], 'drug_exposure_start_datetime')
 
-Concept = SchemaNode('Concept', None, 'concept_id', [], ['concept_id'], None,
+Concept = SchemaNode('Concept', [], ['concept_id'], ['concept_id'], None,
                      default_lkp='concept_name')
-nodes = [Person, Visit_Detail, Care_Site, Visit_Occurrence, Death, Measurement, Concept]
+nodes = [Person, Visit_Detail, Care_Site, Visit_Occurrence, Death, Measurement,
+         Drug_Exposure, Concept]
 node_lkp = {n.name: n for n in nodes}
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -79,9 +82,11 @@ opts_secondary = [
     all_fields['visit_type'].copy(set_item_name='visit type'),
     all_fields['admission_type'].copy(set_item_name='admission type'),
     all_fields['visit_start_date'].copy(set_item_name='visit start date'),
-    all_fields['length_of_stay'].copy(set_item_name='length of stay'),
+    all_fields['length_of_stay_visit'].copy(set_item_name='length of stay (visit)'),
+    all_fields['length_of_stay_detail'].copy(set_item_name='length of stay (detail)'),
     all_fields['care_site'].copy(set_item_name='care site'),
-    all_fields['death']
+    all_fields['death'],
+    all_fields['measurement_type'].copy(set_item_name='measurement type'),
 ]
 
 
@@ -111,8 +116,14 @@ for i, opts in enumerate([opts_primary, opts_secondary]):
 with open("standard_queries.json", 'r') as f:
     standard_queries = json.JSONDecoder(object_pairs_hook=OrderedDict).decode(f.read())
 
-# agg_opt = opts_aggregation[0]
-# agg_opt.set_aggregation('count')
-# tmp = construct_query(agg_opt, opts_split[0], *opts_split[1:])
-# print(tmp)
+
+if __name__ == "__main__":
+    agg_opt = opts_primary[0]
+    agg_opt.set_aggregation('count')
+    _opts = opts_secondary[6:7]
+    _opts[0].set_aggregation('avg')
+    for o in _opts:
+        o.is_secondary=True
+    tmp = construct_query(agg_opt, *_opts)
+    print(tmp)
 

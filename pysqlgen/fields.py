@@ -68,16 +68,19 @@ class UserOption:
                                                self.transformations \
                                             else self.transformations[0]
         self.default_transformation = _def_trans
+        self.selected_transform = None  # to keep linter happy
         self.set_transform(_def_trans)
 
         self.aggregations = [None if t is None else t.lower() for t in aggregations]
         self.default_aggregation = default_aggregation
+        self.selected_aggregation = None  # to keep linter happy
         self.set_aggregation(default_aggregation)
 
         self.table = table if isinstance(table, SchemaNode) else table.title()
         self.dimension_table = dimension_table
         self._perform_lkp = perform_lkp
         self.dim_where = dim_where
+        self.coalesce = None
 
         if dimension_table is not None:
             if lkp_field is not None:
@@ -89,15 +92,18 @@ class UserOption:
                 self.lkp_field = self.dimension_table.default_lkp
 
     def set_transform(self, t):
-        # if t is not None:
+        # if self.transformations is None:
+        #     raise Exception(f"Cannot apply transform: None are allowed for {self.item}")
         assert t in self.transformations, f'{t} is an invalid transformation. ' + \
-                                          'Allowed=' + ','.join(self.transformations)
+                                          'Allowed=' + \
+                                          ','.join([str(s) for s in self.transformations])
         self.selected_transform = t
 
     def set_aggregation(self, a):
-        # if a is not None:
+        # if self.aggregations is None:
+        #     raise Exception(f"Cannot apply aggregation: None allowed for {self.item}")
         assert a in self.aggregations, f'{a} is an invalid aggregation. Allowed=' + \
-                                          ','.join(self.aggregations)
+                                          ','.join([str(s) for s in self.aggregations])
         self.selected_aggregation = a
 
     @property
@@ -287,7 +293,8 @@ class UserOption:
 
         # ________________ Coalesce with default (if left join) _______________________
         if coalesce is not None:
-            sel = f"COALESCE({sel}, '{coalesce}')"
+            coalesce = f"'{coalesce}'" if isinstance(coalesce, str) else str(coalesce)
+            sel = f"COALESCE({sel}, {coalesce})"
 
         if self._field_alias != '':
             sel += f' AS {self.field_alias}'

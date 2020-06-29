@@ -1,4 +1,7 @@
-from .utils import str_to_fieldname
+import queue
+import math
+from collections import OrderedDict
+from .utils import str_to_fieldname, rm_alias_placeholder
 
 class DBMetadata:
     """
@@ -7,6 +10,14 @@ class DBMetadata:
     """
     def __init__(self, nodes, custom_tables, schema, AGGREGATIONS, TRANSFORMATIONS,
                  coalesce_default='Unknown', agg_alias_lkp=None):
+
+        # Calculate children
+        for node in nodes:
+            for p in node.parents:
+                p.children.append(node)
+        for node in nodes:
+            node.children = list(set(node.children))
+
         self.nodes = nodes
         self.custom_tables = custom_tables
         self.AGGREGATIONS = AGGREGATIONS
@@ -30,11 +41,12 @@ class SchemaNode:
     `traverse_to_ancestor` which finds a path between any two nodes via the
     first common ancestor.
     """
-    def __init__(self, name, parent, pk, children, fks, datefield,
-                 default_lkp=None, schema=None):
+    def __init__(self, name, parents, pk, fks, datefield,
+                 default_lkp=None, schema=None, children=None):
+        assert isinstance(parents, list), "parents must be a list of nodes"
         self.name = name
-        self.parent = parent
-        self.children = children
+        self.parents = parents
+        self.children = children if children is not None else []
         self.pk = pk
         self.fks = fks
         self.primary_date_field = datefield
@@ -43,22 +55,33 @@ class SchemaNode:
         self.is_cte = False
 
     def __repr__(self):
-        return f'{self.name} Table <SchemaNode with parent {self.parent}>'
+        return f'{self.name} Table <SchemaNode with parent(s) ' + \
+               f'{[p.__str__() for p in self.parents]}>'
 
     def __str__(self):
         return f'{self.name} Table'
 
     def num_parents(self):
-        return 0 if self.parent is None else self.parent.num_parents() + 1
+        """
+        Calculates the number of parents above the node (only using the *FIRST* parent
+        in the `.parents` list, in the case there are > 1).
+        """
+        return 0 if len(self.parents) == 0 else self.parents[0].num_parents() + 1
 
-    def common_key(self, node_to):
-        parent_keys = [node_to.pk, *node_to.fks]
-        if self.pk in parent_keys:
-            return self.pk
-        else:
-            for fk in self.fks:
-                if fk in parent_keys:
-                    return fk
+    def parent_rank(self, parent):
+        try:
+            return self.parents.index(parent)
+        except ValueError:
+            raise Exception(f"parent_rank: cannot find parent {parent} in {self}.")
+
+    def common_keys(self, node_to):
+        parent_keys = set(node_to.pk + node_to.fks)
+        pk_intersect = list(filter(lambda x: x in parent_keys, self.pk))
+        if len(pk_intersect) > 0:
+            return pk_intersect
+        fk_intersect = list(filter(lambda x: x in parent_keys, self.fks))
+        if len(fk_intersect) > 0:
+            return fk_intersect
         raise RuntimeError(f'No common keys between {self.name} and {node_to.name}.')
 
     def traverse_to_ancestor(self, b, internal=False):
@@ -75,29 +98,50 @@ class SchemaNode:
         out.append(add_to_list)
         return out if internal else (out[0][0], out[1:])
 
+    def __copy__(self):
+        obj = type(self).__new__(self.__class__)
+        obj.__dict__.update(self.__dict__)
+        return obj
+
+    def copy(self):
+        return self.__copy__()
+
 
 class CTENode(SchemaNode):
-    def __init__(self, parent, pk, fields, default_lkp=None):
+    def __init__(self, parents, pk, fields, default_lkp=None, children=None):
+        assert isinstance(parents, list), "parents must be a list of nodes"
         assert isinstance(fields, list), "fields must be a list of UserOptions"
 
         agg_fields = [x.item for x in fields if x.has_aggregation]
         name = '_'.join([str_to_fieldname(x) for x in agg_fields]) + '_agg'
 
         self.name = name
-        self.parent = parent
+        self.parents = parents
         self.pk = pk
-        self.fks = []
+        self.children = children if children is not None else []
         self.fields = fields
         self.primary_date_field = None
         self.default_lkp = default_lkp     # if used as a Dimension table
         self.schema = ''
         self.is_cte = True
 
+    @property
+    def fks(self):
+        return [rm_alias_placeholder(f.sql_item) for f in self.fields]
+
     def __repr__(self):
-        return f'{self.name} Table <CTENode with parent {self.parent}>'
+        return f'{self.name} Table <CTENode with parent(s) {self.parents}>'
 
     def __str__(self):
         return f'{self.name} Table with fields: {[x.item for x in self.fields.keys()]}'
+
+    def __copy__(self):
+        obj = type(self).__new__(self.__class__)
+        obj.__dict__.update(self.__dict__)
+        return obj
+
+    def copy(self):
+        return self.__copy__()
 
 
 def topological_sort(nodes, return_perm=False):
@@ -113,6 +157,76 @@ def topological_sort(nodes, return_perm=False):
     level = [node.num_parents() for node in nodes]
     sort_perm = sorted(range(len(level)), key=lambda k: level[k])
     return [nodes[i] for i in sort_perm] if not return_perm else sort_perm
+
+
+def breadthfirstsearch(A, B):
+    """
+    Perform BFS to find shortest path from v -> w through nodes defined by "nodes"
+    """
+
+    Q = queue.Queue()
+    Q.put(A)
+    path_exist = {A: None}    # mark visited, and capture the preceding node
+
+    while not Q.empty():
+        v = Q.get()
+        if v is B:
+            # Success
+            path = [v]
+            while path_exist[v] is not None:
+                v = path_exist[v]
+                path.append(v)
+            return path
+        for w in [*v.parents, *v.children]:
+            if w not in path_exist:
+                path_exist[w] = v
+                Q.put(w)
+
+
+def minimum_subtree(nodes):
+    """
+    The goal of this function is to return the subtree of minimum size which contains
+    all of the nodes specified in the argument. This is a graph Steiner Tree problem which
+    is NP-Hard, so here we use a heuristic approach.
+    """
+    assert len(nodes) > 0, "require a non-empty list of nodes"
+    if len(nodes) == 1:
+        return {nodes[0]: ()}
+
+    levels = [node.num_parents() for node in nodes]
+    level_lkp = {}                        # level --> nodes lookup
+    for (node, level) in zip(nodes, levels):
+        level_lkp[level] = level_lkp.get(level, []) + [node]
+    unique_levels = sorted(level_lkp.keys())
+
+    result = OrderedDict()
+    for level in unique_levels:
+        c_nodes = level_lkp[level]
+        for node in c_nodes:
+            if len(result) == 0:
+                result[node] = ()
+            else:
+                # find shortest path to `result` (existing tree) =: P
+                existing_vertices = list(result.keys())
+                shortest_path = (math.inf, None, None)
+                for destination in existing_vertices:
+                    path = breadthfirstsearch(node, destination)
+                    if path is None:
+                        continue
+                    dist = len(path) - 1
+                    takes_precedence = ((shortest_path[2] is None) or
+                                        (shortest_path[2] not in node.parents) or
+                                        (node.parent_rank(destination) <
+                                         node.parent_rank(shortest_path[2])))
+                    if dist <= shortest_path[0] and takes_precedence:
+                        shortest_path = (dist, path, node)
+                P = shortest_path[1]   # first entry will already exist in `result`.
+
+                # for each edge in P, find common keys and add to join dict.
+                for (v, w) in zip(P[:-1], P[1:]):
+                    keys = v.common_keys(w)
+                    result[w] = ((v, keys), (w, keys))
+    return result
 
 
 def is_node(x, allow_custom=False):

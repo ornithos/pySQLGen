@@ -37,7 +37,7 @@ Visit_Occurrence:
     admission_type:
       - "{alias:s}admitting_source_concept_id"
       -
-      -
+      - [~, rows]
       - [Concept, True, $standard]
     discharge_type:
       - "{alias:s}discharge_to_concept_id"
@@ -48,7 +48,7 @@ Visit_Occurrence:
       - "{alias:s}visit_start_datetime"
       -
       - [~, rows]
-    length_of_stay:
+    length_of_stay_visit:
       - "CASE WHEN {alias:s}visit_end_datetime IS NOT NULL THEN \n
         DATEDIFF(DAY,  {alias:s}visit_start_datetime, {alias:s}visit_end_datetime) \n
         ELSE NULL END"
@@ -57,6 +57,12 @@ Visit_Occurrence:
 
 
 Visit_Detail:
+    length_of_stay_detail:
+      - "CASE WHEN {alias:s}visit_detail_end_datetime IS NOT NULL THEN \n
+        DATEDIFF(DAY,  {alias:s}visit_detail_start_datetime, {alias:s}visit_detail_end_datetime) \n
+        ELSE NULL END"
+      -
+      - [~, avg]
     care_site:
       - "{alias:s}care_site_id"
       -

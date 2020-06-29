@@ -20,7 +20,8 @@ def in_list(x, L, allow_None=False):
 
 
 def str_to_fieldname(x):
-    return x.strip().replace(' ', '_')
+    name_rep = x.strip().replace(' ', '_').replace('(', '_').replace(')', '_')
+    return re.sub("(__+)", "_", name_rep).rstrip('_')
 
 
 def make_unique_name(x, *existing_names):

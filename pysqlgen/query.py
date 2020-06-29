@@ -1,5 +1,5 @@
 from collections import UserList, OrderedDict
-from .dbtree import topological_sort, CTENode
+from .dbtree import CTENode, minimum_subtree
 from .fields import UserOption
 from .utils import rm_alias_placeholder, make_unique_name, flatten
 import re
@@ -113,7 +113,7 @@ class StmtFrom(OrderedDict):
 
     def generate_basic_statement(self, force_alias=False):
         if self.generated is None:
-            nodes = topological_sort(list(self.keys()))
+            nodes = self.keys()  #topological_sort(list(self.keys()))
             n = len(nodes)
             join_list = []
             global_schema = self.parent.context.schema
@@ -136,8 +136,10 @@ class StmtFrom(OrderedDict):
                     aliases[node] = alias
                     a = (aliases[v[0][0]], aliases[v[1][0]])  #  join aliases
                     c = (v[0][1], v[1][1])  # join columns
+                    s = len(c[0])           # number of join conditions
+                    on_stmt = [f'{a[0]}.{c[0][i]} = {a[1]}.{c[1][i]}' for i in range(s)]
                     join_list.append(f'LEFT JOIN {schema}{node.name} {alias}\nON        '
-                                     + f'{a[0]}.{c[0]} = {a[1]}.{c[1]}')
+                                     + '\nAND       '.join(on_stmt))
             self.generated = 'FROM ' + '\n'.join(join_list)
         return self.generated + '\n'
 
@@ -195,30 +197,30 @@ def construct_query(*args, dialect='MSSS'):
         ctes = []
         for arg in args:
             if arg.is_secondary and arg.has_aggregation:
-                arg_copy = arg.copy()
-                primary_copy = primary.copy()
+                arg_cte = arg.copy()
+                primary_cte = primary.copy()
                 # process arg: strip of CTE-making recursion
-                arg_copy.is_secondary = False
+                arg_cte.is_secondary = False
                 # process primary: strip of transformation / aggregation (done outside)
-                primary_copy.set_transform(None)
-                primary_copy.set_aggregation(None)
-                primary_copy.field_alias = rm_alias_placeholder(primary_copy.sql_item)
+                primary_cte.set_transform(None)
+                primary_cte.set_aggregation(None)
+                primary_cte.field_alias = rm_alias_placeholder(primary_cte.sql_item)
+                if primary_cte.field_alias in arg_cte.table.pk + arg_cte.table.fks:
+                    # remove join to e.g. Person table if person_id in the arg's table.
+                    primary_cte.table = arg_cte.table
                 # create CTE
-                print(arg_copy)
-                print(primary_copy)
-                cte_fields = [arg_copy, primary_copy]
-                cte = CTENode(primary_copy.table,
-                              primary_copy.field_alias,
-                              cte_fields)
-                print(cte.pk)
-                print(cte.fks)
+                cte_fields = [primary_cte, arg_cte]
+                cte = CTENode([primary_cte.table.parents[0]], # parent
+                              [primary_cte.field_alias],      # pk
+                              cte_fields)                     # cte_fields
                 ctes.append(cte)
                 # replace original arg with references to CTE
-                arg.sql_item = '{alias}' + arg_copy.field_alias
+                arg.sql_item = '{alias}' + arg_cte.field_alias
                 arg.table = cte
-                arg.field_alias = ''
+                arg.field_alias = arg_cte.field_alias
                 arg.set_aggregation(None)
                 arg.set_transform(None)
+                arg.coalesce = 0
 
     # ==== GET ALL TABLES AND COMMON TABLE EXPRESSIONS ============
     nodes = [o.get_table() for o in args]
@@ -226,28 +228,8 @@ def construct_query(*args, dialect='MSSS'):
     stmt.ctes.extend(unique_nodes)  # CTE statement filters for CTEs.
 
     # ==== CONSTRUCT JOINS ==================
-    if len(unique_nodes) == 1:
-        tbl = args[0].get_table()
-        stmt._from[tbl] = ()
-    else:
-        # We have in general something like a Steiner Tree Problem (NP-hard)
-        # to solve here, but for most schemas, a brute force approach
-        # like the below will work absolutely fine.
-        #
-        # Note that when the same key is present in many tables, the
-        #  intermediate joins up a tree may be unnecessary. In general, without
-        # consideration of the constraints, I think this is the safest thing
-        # to but the query optimiser will perform join elimination if it has
-        # access to the constraints
-        node_order = topological_sort(unique_nodes, return_perm=True)
-        for ix_prev, ix in zip(node_order[:-1], node_order[1:]):
-            node_prev, node = unique_nodes[ix_prev], unique_nodes[ix]
-            ancestor, path = node_prev.traverse_to_ancestor(node)
-            if len(stmt._from) == 0:
-                stmt._from[ancestor] = ()
-            for edge in path:
-                key = edge[0].common_key(edge[1])
-                stmt._from[edge[0]] = ((edge[0], key), (edge[1], key))
+    subtree = minimum_subtree(unique_nodes)
+    stmt._from.update(subtree)
 
     # Add dimension tables (if requested to joins)
     lkp_joins = []
@@ -258,7 +240,7 @@ def construct_query(*args, dialect='MSSS'):
                                     "tables. (But it only requires thinking about how " + \
                                     "to avoid multiple copies.)"
             fk = rm_alias_placeholder(o.sql_item)
-            lkp_joins.append(((o.table, fk), (dtbl, dtbl.pk)))
+            lkp_joins.append(((o.table, fk), (dtbl, dtbl.pk[0])))
 
     # Generate statement in order to populate aliases dict
     stmt._from.generate_basic_statement(force_alias=(len(lkp_joins) > 0))
@@ -271,11 +253,14 @@ def construct_query(*args, dialect='MSSS'):
         # Get table alias for field, depending on whether has lookup table or not
         if not o.perform_lkp:
             alias = stmt.aliases[o.get_table()]
-            coalesce = None
+            coalesce = o.coalesce   # usually None
+            if o.coalesce is not None:
+                # currently -> coalesce if using a CTE aggregation
+                pass
         else:
             dtbl = o.dimension_table
             fk = rm_alias_placeholder(o.sql_item)
-            alias = stmt.lkp_aliases[((o.table, fk), (dtbl, dtbl.pk))]
+            alias = stmt.lkp_aliases[((o.table, fk), (dtbl, dtbl.pk[0]))]
             coalesce = args[0].context.coalesce_default
 
         sel, where = o.sql_transform(alias=alias, dialect=dialect, coalesce=coalesce)

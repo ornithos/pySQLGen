@@ -14,8 +14,8 @@
     ["Race", null, null, true]
    ],
   "Distribution of length of stay": [
-    ["Person", null, "count"],
-    ["length of stay", null, null, false]
+    ["Person", null, "rows"],
+    ["length of stay (visit)", null, null, false]
   ],
   "Number of visits per person": [
     ["Person", null, "count"],
@@ -23,6 +23,7 @@
   ],
   "Care sites by average length of stay": [
     ["Person", null, "count"],
-    ["length of stay", null, "avg", false]
+    ["length of stay (detail)", null, "avg", false],
+    ["care site", null, null, true]
   ]
 }
