@@ -37,7 +37,7 @@ Visit_Occurrence:
     admission_type:
       - "{alias:s}admitting_source_concept_id"
       -
-      - [~, rows]
+      - [~, rows, count]
       - [Concept, True, $standard]
     discharge_type:
       - "{alias:s}discharge_to_concept_id"

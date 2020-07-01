@@ -66,6 +66,7 @@ def app_state_to_opts(args, primary_fields, secondary_fields):
         # Get the field that the user has selected (dropdown column 1)
         if i == 0:
             opt = primary_fields[selected.item_id].copy()
+            opt.perform_lkp = False     # no lookups available for primary field.
         elif selected.item_id is None:
             continue   # user has [x] the current item and hit submit without selecting.
         elif selected.item_id > 0:

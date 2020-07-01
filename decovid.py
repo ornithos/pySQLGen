@@ -120,10 +120,10 @@ with open("standard_queries.json", 'r') as f:
 if __name__ == "__main__":
     agg_opt = opts_primary[0]
     agg_opt.set_aggregation('count')
-    _opts = opts_secondary[6:7]
+    _opts = opts_secondary[6:8]
     _opts[0].set_aggregation('avg')
+    _opts.append(opts_secondary[-3])
     for o in _opts:
         o.is_secondary=True
     tmp = construct_query(agg_opt, *_opts)
     print(tmp)
-

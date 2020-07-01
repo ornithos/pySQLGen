@@ -58,13 +58,13 @@ secondary_var_options.extend([{'label': opt.item, 'value': i+1} for i, opt in
 
 def construct_dropdowns(id, opts):
     opts = [None, *opts]
-    return dcc.Dropdown(id=id,
+    return dcc.Dropdown(id=id, optionHeight=25,
                         options=secondary_var_options,
                         style={'font-size': '13px'}, value=0), \
-           dcc.Dropdown(id=id+'-trans',
+           dcc.Dropdown(id=id+'-trans', optionHeight=25,
                         options=[{'label': '<None>', 'value': 0}],
                         style={'font-size': '13px'}, value=None), \
-           dcc.Dropdown(id=id+'-agg',
+           dcc.Dropdown(id=id+'-agg', optionHeight=25,
                         options=[{'label': '<None>', 'value': 0}],
                         style={'font-size': '13px'}, value=None)
 
@@ -129,7 +129,11 @@ app.layout = html.Div([
                 ], className="row"),
                 html.Br(),
                 html.Button(id='submit-button-standard', n_clicks=0,
-                            children='Submit', className="four offset-by-four columns")
+                            children='Submit', className="four offset-by-four columns"),
+                html.Div([dcc.Checklist(id='check-keep-nulls',
+                                        options=[{'label': ' Replace NULLs', 'value': 1}],
+                                        value=[1])],
+                              className="four columns")
             ], className="row", style={'background-color': '#EEEEEE', 'padding': '10px'}
         ),
         html.Br(),
@@ -193,13 +197,16 @@ for i in range(num_secondary):
                    State(f'dropdown-{i}-agg', 'value'),
                    State(f'check-{i}', 'value')])
 all_states.append(State(f'dropdown-squery', 'value'))
-
+all_states.append(State('check-keep-nulls', 'value'))
 
 @app.callback(Output('sql-output-container', 'children'),
               [Input('submit-button', 'n_clicks'),
                Input('submit-button-standard', 'n_clicks')],
               all_states)
 def update_output(n_clicks1, n_clicks2, *args):
+
+    replace_nulls = args[-1]
+    args = args[:-1]
 
     # which button called the function?
     ctx = dash.callback_context
@@ -219,7 +226,7 @@ def update_output(n_clicks1, n_clicks2, *args):
     print(use_opts)
     if len(use_opts) > 0:
         print(f"Create query with {len(use_opts)} fields selected")
-        sql = pysqlgen.query.construct_query(*use_opts)
+        sql = pysqlgen.query.construct_query(*use_opts, allow_coalesce=replace_nulls)
     else:
         sql = "\n\n~~~~ NO VARIABLES SELECTED ~~~~~\n\n"
 
