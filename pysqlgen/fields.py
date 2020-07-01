@@ -177,20 +177,27 @@ class UserOption:
 
     @property
     def field_alias(self):
+        return self._field_alias_logic(will_perform_lkp=self.perform_lkp)
+
+    @field_alias.setter
+    def field_alias(self, value):
+        self._field_alias = value
+
+    def _field_alias_logic(self, will_perform_lkp=True, depend_agg=True):
         if self._field_alias is None:
             field_alias = str_to_fieldname(self.item)
-            field_alias += '_id' if (self.has_dim_lkp and not self.perform_lkp) else ''
+            field_alias += '_id' if (self.has_dim_lkp and not will_perform_lkp) else ''
         else:
             field_alias = self._field_alias
-        if self.has_aggregation and self._field_alias is None:
+        if depend_agg and self.has_aggregation and self._field_alias is None:
             agg_prefix = self.selected_aggregation.lower().strip()
             agg_prefix = self.context.agg_alias_lkp.get(agg_prefix, agg_prefix)
             field_alias = agg_prefix + '_' + field_alias
         return field_alias
 
-    @field_alias.setter
-    def field_alias(self, value):
-        self._field_alias = value
+    @property
+    def sql_fieldname(self):
+        return rm_alias_placeholder(self.sql_item)
 
     def __copy__(self, set_item_name=None):
         obj = type(self).__new__(self.__class__)
@@ -333,7 +340,7 @@ def read_all_fields_from_yaml(filename, context, tbl_lkp, dim_lkp_where=None):
                     assert dim_lkp_where is not None, "dim_lkp_where must be specified."
                     lkp_where = dim_lkp_where[lkp_where[1:]]
             else:
-                lkp_tbl, lkp_def, lkp_where = None, None, None
+                lkp_tbl, lkp_def, lkp_where = None, False, None
             field = UserOption(field_nm, stmt, tbl, context,
                                transformations=transformations,
                                aggregations=aggregations,
@@ -343,3 +350,13 @@ def read_all_fields_from_yaml(filename, context, tbl_lkp, dim_lkp_where=None):
             all_fields[field_nm] = field
 
     return all_fields
+
+
+def construct_simple_field(name, table, context, is_secondary=True):
+    return UserOption(name, '{alias}'+name, table, context,
+                      transformations=[None],
+                      aggregations=[None],
+                      dimension_table=None,
+                      perform_lkp=False,
+                      dim_where=None,
+                      is_secondary=is_secondary)

@@ -1,8 +1,13 @@
-from collections import UserList, OrderedDict
-from .dbtree import CTENode, minimum_subtree
-from .fields import UserOption
-from .utils import rm_alias_placeholder, make_unique_name, flatten
+from collections import UserList, OrderedDict, defaultdict
+import copy
 import re
+import textwrap
+from .dbtree import CTENode, minimum_subtree, topological_sort_hierarchical
+from .fields import UserOption, construct_simple_field
+from .utils import rm_alias_placeholder, make_unique_name, flatten, ilen, \
+    replace_in_ordered_dict
+from . import graph
+
 
 class Statement:
     """
@@ -80,15 +85,21 @@ class StmtCTE(StmtGeneric):
         if len(tables) == 0:
             return ''
         out = []
-        for node in tables:
+        for i, node in enumerate(tables):
             # construct inner CTE query (and add margin)
             q = construct_query(*node.fields, dialect=dialect).strip()
             q = "\n".join([" "*self.whitespace + line for line in q.split("\n")])
-            # construct outer part of CTE query, and concatenate result to `out`.
+            # construct outer part of CTE query.
             fields = [x.field_alias for x in node.fields]
-            cte = f'{node.name} ({", ".join(fields)}) AS (\n{q}\n)'
+            # wrap header of CTE query if required, and indent subsequent lines
+            indent_str = ' ' * (len(node.name) + 3 + 4*(i == 0))
+            wrap = textwrap.TextWrapper(width=100, subsequent_indent=indent_str)
+            cte_head = wrap.fill(f'{node.name} ({", ".join(fields)})')
+            cte_head += '\nAS '
+            # concatenate result to `out`
+            cte = cte_head + f'(\n{q}\n)'
             out.append(cte)
-        return f'{self.statement} ' + ("\n" + self.conj).join(out) + '\n\n'
+        return f'{self.statement} ' + ("\n\n" + self.conj).join(out) + '\n\n'
 
 
 class StmtFrom(OrderedDict):
@@ -113,7 +124,7 @@ class StmtFrom(OrderedDict):
 
     def generate_basic_statement(self, force_alias=False):
         if self.generated is None:
-            nodes = self.keys()  #topological_sort(list(self.keys()))
+            nodes = self.keys()  #topological_sort_hierarchical(list(self.keys()))
             n = len(nodes)
             join_list = []
             global_schema = self.parent.context.schema
@@ -167,7 +178,7 @@ class StmtFrom(OrderedDict):
         return generated + '\n\n'
 
 
-def construct_query(*args, dialect='MSSS'):
+def construct_query(*args, dialect='MSSS', allow_coalesce=True):
     """
     Construct a SQL query from a list of various UserOptions. Each option
     contains a field, a transformation/aggregation, and the table in which
@@ -188,48 +199,109 @@ def construct_query(*args, dialect='MSSS'):
         "contexts associated with the User Opts. Ensure these are the same."
     stmt = Statement(args[0].context)
 
-    # ==== TRANSFORM SECONDARY AGGREGATIONS INTO CTEs =============
-    has_secondary = any([arg.is_secondary for arg in args])
-    if has_secondary:
-        primary = list(filter(lambda x: not x.is_secondary, args))
-        assert len(primary) == 1, "There must be exactly one primary field."
-        primary = primary[0]
-        ctes = []
-        for arg in args:
-            if arg.is_secondary and arg.has_aggregation:
-                arg_cte = arg.copy()
-                primary_cte = primary.copy()
-                # process arg: strip of CTE-making recursion
-                arg_cte.is_secondary = False
-                # process primary: strip of transformation / aggregation (done outside)
-                primary_cte.set_transform(None)
-                primary_cte.set_aggregation(None)
-                primary_cte.field_alias = rm_alias_placeholder(primary_cte.sql_item)
-                if primary_cte.field_alias in arg_cte.table.pk + arg_cte.table.fks:
-                    # remove join to e.g. Person table if person_id in the arg's table.
-                    primary_cte.table = arg_cte.table
-                # create CTE
-                cte_fields = [primary_cte, arg_cte]
-                cte = CTENode([primary_cte.table.parents[0]], # parent
-                              [primary_cte.field_alias],      # pk
-                              cte_fields)                     # cte_fields
-                ctes.append(cte)
-                # replace original arg with references to CTE
-                arg.sql_item = '{alias}' + arg_cte.field_alias
-                arg.table = cte
-                arg.field_alias = arg_cte.field_alias
-                arg.set_aggregation(None)
-                arg.set_transform(None)
-                arg.coalesce = 0
-
-    # ==== GET ALL TABLES AND COMMON TABLE EXPRESSIONS ============
+    # ==== GET ALL TABLES AND FORM BASIC JOIN SUBTREE ============
+    context = args[0].context
     nodes = [o.get_table() for o in args]
     unique_nodes = list(set(nodes))
-    stmt.ctes.extend(unique_nodes)  # CTE statement filters for CTEs.
+    join_tree = minimum_subtree(unique_nodes)
 
-    # ==== CONSTRUCT JOINS ==================
-    subtree = minimum_subtree(unique_nodes)
-    stmt._from.update(subtree)
+    # The primary table is considered the "root node" of the tree -- edges are undirected.
+    primary = [o for o in args if not o.is_secondary]
+    assert len(primary) == 1, f'Expecting one primary field. Got {len(primary)}.'
+    primary = primary[0]
+    primary_tbl = primary.get_table()
+
+    # topological sort
+    edges = [(k, v[0][0]) for (i,(k,v)) in enumerate(join_tree.items()) if i > 0]
+    G = graph.Graph(edges, directed=False)
+    sorted_nodes = G.topological_sort(leave_until_last=primary_tbl)
+    # (Recreate G since the topological_sort mutates G (ikr - should fix this!))
+    G = graph.Graph(edges, directed=False)
+
+    # ======= CREATE CTEs WHENEVER WE FIND A NESTED AGGREGATION ============
+    field_tbl_lkp = defaultdict(list)
+    for arg in args:
+        field_tbl_lkp[arg.get_table()].append(arg)
+    all_fields = dict()
+
+    # Traverse the join tree of the selected tables, making CTEs wherever
+    # there exists secondary aggregation (i.e. not of the primary variable).
+    for i, v in enumerate(sorted_nodes[:-1]):
+        v_fields = field_tbl_lkp[v]
+        any_v_has_agg = any([arg.has_aggregation for arg in v_fields])
+
+        # Get 'child tables' and 'parent tables' (wrt topological sort)
+        child_tbls = G._graph[v] - set(sorted_nodes[i:])
+        parent_tbl = join_tree[v][0][0]
+        parent_fks, v_pks = join_tree[v][0][1], join_tree[v][1][1]
+
+        # The current table contains an aggregation, so create a CTE.
+        if any_v_has_agg:
+            # Get all arguments for table which are not aggregated
+            f_non_agg = [arg for arg in v_fields if not arg.has_aggregation]
+            f_non_agg += flatten([all_fields[w] for w in child_tbls])
+
+            # Add in table PKs if not already included in `f_non_agg`.
+            f_non_agg_names = [f.sql_fieldname for f in f_non_agg]
+            pk_names_to_add = [f for f in v_pks if f not in f_non_agg_names]
+            pks_to_add = [construct_simple_field(f, v, context) for f in pk_names_to_add]
+
+            # Make a copy of all non-aggregated AND aggregated fields.
+            f_non_agg_cte = [f.copy() for f in f_non_agg]
+            f_agg_cte = [arg for arg in v_fields if arg.has_aggregation]
+            f_agg = [f.copy() for f in f_agg_cte]
+
+            # consolidate CTE fields and add primary designator to (any) field in root
+            cte_fields = pks_to_add + f_non_agg_cte + f_agg_cte
+            for field in cte_fields:
+                if field.sql_fieldname in v_pks:
+                    field.is_secondary = False
+                    break
+
+            # Defer lookups until the final query
+            for field in cte_fields:
+                field.perform_lkp = False
+
+            # Construct CTE
+            cte = CTENode([parent_tbl],    # parent
+                          v_pks,           # pk
+                          cte_fields)      # cte_fields
+            stmt.ctes.append(cte)
+
+            # Point the [references to the aggregations] outside the CTE to the CTE field
+            for f in f_agg:
+                f.sql_item = '{alias}' + f.field_alias
+                f.table = cte
+                f.field_alias = f.field_alias   # this is *not* a noop! (@property...)
+                f.set_aggregation(None)
+                f.set_transform(None)
+                if allow_coalesce:
+                    f.coalesce = 0                  # assumes that aggregation is numeric
+
+            for f in f_non_agg:
+                f.table = cte
+                f.sql_item = '{alias}'+f._field_alias_logic(will_perform_lkp=False)
+
+            # Push these pointers to within the CTE up to the parent (although not PKs)
+            all_fields[v] = f_non_agg + f_agg
+
+            # # overwrite the node `v` in the subtree with `cte`
+            # join_cond = tree_final[v]
+            # join_cond = (join_cond[0], (cte, join_cond[1][1]))
+            # tree_final = replace_in_ordered_dict(tree_final, v, cte, join_cond)
+        else:
+            all_fields[v] = v_fields + flatten([all_fields[w] for w in child_tbls])
+
+    # Set args to the args propagated up to the root node
+    primary_children = G._graph[primary_tbl]
+    args = field_tbl_lkp[primary_tbl] + flatten([all_fields[c] for c in primary_children])
+    # Place the resulting tree into the FROM clause of the Statement object.
+
+    nodes = [o.get_table() for o in args]
+    unique_nodes = list(set(nodes))
+    tree_final = minimum_subtree(unique_nodes)
+
+    stmt._from.update(tree_final)
 
     # Add dimension tables (if requested to joins)
     lkp_joins = []
@@ -239,7 +311,7 @@ def construct_query(*args, dialect='MSSS'):
             assert not dtbl.is_cte, "Currently unable to support CTEs for dimension " + \
                                     "tables. (But it only requires thinking about how " + \
                                     "to avoid multiple copies.)"
-            fk = rm_alias_placeholder(o.sql_item)
+            fk = o.sql_fieldname
             lkp_joins.append(((o.table, fk), (dtbl, dtbl.pk[0])))
 
     # Generate statement in order to populate aliases dict
@@ -253,15 +325,13 @@ def construct_query(*args, dialect='MSSS'):
         # Get table alias for field, depending on whether has lookup table or not
         if not o.perform_lkp:
             alias = stmt.aliases[o.get_table()]
-            coalesce = o.coalesce   # usually None
-            if o.coalesce is not None:
-                # currently -> coalesce if using a CTE aggregation
-                pass
+            # coalesce is usually None anyway
+            coalesce = o.coalesce if allow_coalesce else None
         else:
             dtbl = o.dimension_table
             fk = rm_alias_placeholder(o.sql_item)
             alias = stmt.lkp_aliases[((o.table, fk), (dtbl, dtbl.pk[0]))]
-            coalesce = args[0].context.coalesce_default
+            coalesce = context.coalesce_default if allow_coalesce else None
 
         sel, where = o.sql_transform(alias=alias, dialect=dialect, coalesce=coalesce)
         # SELECT

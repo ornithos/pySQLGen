@@ -1,7 +1,9 @@
 import queue
 import math
 from collections import OrderedDict
+from warnings import warn
 from .utils import str_to_fieldname, rm_alias_placeholder
+from .graph import Graph
 
 class DBMetadata:
     """
@@ -98,6 +100,14 @@ class SchemaNode:
         out.append(add_to_list)
         return out if internal else (out[0][0], out[1:])
 
+    def is_leaf(self, directed=True):
+        if directed:
+            return len(self.children) == 0
+        else:
+            edges = len(self.children) + len(self.parents)
+            (edges >= 1) or warn(str(self) + " is an orphan node")
+            return edges == 1
+
     def __copy__(self):
         obj = type(self).__new__(self.__class__)
         obj.__dict__.update(self.__dict__)
@@ -127,7 +137,7 @@ class CTENode(SchemaNode):
 
     @property
     def fks(self):
-        return [rm_alias_placeholder(f.sql_item) for f in self.fields]
+        return [f.sql_fieldname for f in self.fields]
 
     def __repr__(self):
         return f'{self.name} Table <CTENode with parent(s) {self.parents}>'
@@ -144,7 +154,7 @@ class CTENode(SchemaNode):
         return self.__copy__()
 
 
-def topological_sort(nodes, return_perm=False):
+def topological_sort_hierarchical(nodes, return_perm):
     """
     This MASSIVELY takes advantage of an assumed star schema.
     If the schema is a more complex DAG, a more general
