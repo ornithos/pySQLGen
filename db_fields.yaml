@@ -19,12 +19,12 @@ Person:
     race:
       - "{alias:s}race_concept_id"
       -
-      -
+      - [~, rows, count]
       - [Concept, True, $standard]
     sex:
       - "{alias:s}gender_concept_id"
       -
-      -
+      - [~, rows, count]
       - [Concept, True, $standard]
 
 
@@ -32,7 +32,7 @@ Visit_Occurrence:
     visit_type:
       - "{alias:s}visit_concept_id"
       -
-      -
+      - [~, rows, count]
       - [Concept, True, $standard]
     admission_type:
       - "{alias:s}admitting_source_concept_id"
@@ -46,8 +46,8 @@ Visit_Occurrence:
       - [Concept, True, $standard]
     visit_start_date:
       - "{alias:s}visit_start_datetime"
-      -
-      - [~, rows]
+      - [~, hour, day, weekday, week, month]
+      - [~, rows, count]
     length_of_stay_visit:
       - "CASE WHEN {alias:s}visit_end_datetime IS NOT NULL THEN \n
         DATEDIFF(DAY,  {alias:s}visit_start_datetime, {alias:s}visit_end_datetime) \n
@@ -66,13 +66,13 @@ Visit_Detail:
     care_site:
       - "{alias:s}care_site_id"
       -
-      -
+      - [~, rows, count]
       - [Care_Site, True, ~]
 
 Death:
     death:
       - "{alias:s}death_date"
-      - [not null, day, week, month]
+      - [~, not null, hour, day, weekday, week, month]
 
 
 Measurement:
@@ -81,3 +81,13 @@ Measurement:
       -
       - [~, rows, count]
       - [Concept, True, $standard]
+    covid_positive:
+      - "CASE WHEN {alias:s}measurement_concept_id=37310255 AND
+         {alias:s}value_as_concept_id=37310282\n THEN 1 ELSE 0 END"
+      -
+      - [max]
+    covid_negative:
+      - "CASE WHEN {alias:s}measurement_concept_id=37310255 AND
+         {alias:s}value_as_concept_id=37310281\n THEN 1 ELSE 0 END"
+      -
+      - [max]

@@ -270,11 +270,11 @@ def construct_query(*args, dialect='MSSS', allow_coalesce=True):
 
             # Point the [references to the aggregations] outside the CTE to the CTE field
             for f in f_agg:
+                f.field_alias = f.field_alias  # this is *not* a noop! (@property...)
                 f.sql_item = '{alias}' + f.field_alias
                 f.table = cte
-                f.field_alias = f.field_alias   # this is *not* a noop! (@property...)
-                f.set_aggregation(None)
-                f.set_transform(None)
+                f.set_aggregation(None, force=True)
+                f.set_transform(None, force=True)
                 if allow_coalesce:
                     f.coalesce = 0                  # assumes that aggregation is numeric
 

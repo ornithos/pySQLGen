@@ -45,7 +45,7 @@ custom_tables['first admission date'] = custom_admission_date
 
 # Construct metadata
 AGGREGATIONS = ['rows', 'count', 'avg', 'sum', 'max', 'min', 'first', 'last']
-TRANSFORMATIONS = ['not null', 'day', 'week', 'month', 'tens']
+TRANSFORMATIONS = ['not null', 'hour', 'day', 'weekday', 'week', 'month', 'tens']
 schema = 'public'   # name of schema within DB
 
 agg_name_alias = dict(rows='num')  # For automatically constructed field names
@@ -87,6 +87,8 @@ opts_secondary = [
     all_fields['care_site'].copy(set_item_name='care site'),
     all_fields['death'],
     all_fields['measurement_type'].copy(set_item_name='measurement type'),
+    all_fields['covid_positive'].copy(set_item_name='covid positive'),
+    all_fields['covid_negative'].copy(set_item_name='covid negative')
 ]
 
 

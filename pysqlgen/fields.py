@@ -91,19 +91,21 @@ class UserOption:
                     + ' a `lkp_field` in the UserOption arguments.'
                 self.lkp_field = self.dimension_table.default_lkp
 
-    def set_transform(self, t):
+    def set_transform(self, t, force=False):
         # if self.transformations is None:
         #     raise Exception(f"Cannot apply transform: None are allowed for {self.item}")
-        assert t in self.transformations, f'{t} is an invalid transformation. ' + \
+        if not force:
+            assert t in self.transformations, f'{t} is an invalid transformation. ' + \
                                           'Allowed=' + \
                                           ','.join([str(s) for s in self.transformations])
         self.selected_transform = t
 
-    def set_aggregation(self, a):
+    def set_aggregation(self, a, force=False):
         # if self.aggregations is None:
         #     raise Exception(f"Cannot apply aggregation: None allowed for {self.item}")
-        assert a in self.aggregations, f'{a} is an invalid aggregation. Allowed=' + \
-                                          ','.join([str(s) for s in self.aggregations])
+        if not force:
+            assert a in self.aggregations, f'{a} is an invalid aggregation. Allowed=' + \
+                                             ','.join([str(s) for s in self.aggregations])
         self.selected_aggregation = a
 
     @property
@@ -191,6 +193,11 @@ class UserOption:
             field_alias = self._field_alias
         if depend_agg and self.has_aggregation and self._field_alias is None:
             agg_prefix = self.selected_aggregation.lower().strip()
+            # Transform max->has in case of CASE WHEN statements
+            if agg_prefix == 'max':
+                field_stmt = self.sql_fieldname
+                if len(field_stmt) > 3 and field_stmt[:4].lower() == 'case':
+                    agg_prefix = 'has'
             agg_prefix = self.context.agg_alias_lkp.get(agg_prefix, agg_prefix)
             field_alias = agg_prefix + '_' + field_alias
         return field_alias
@@ -258,9 +265,9 @@ class UserOption:
                 sel = f'CASE WHEN {name:s} IS NOT NULL THEN 1 ELSE 0 END'
             elif t in ['day', 'month', 'year']:
                 if dialect == 'msss':
-                    sel = f'{t.upper()}({name:s})'
+                    sel = f'{t.upper():s}({name:s})'
                 elif dialect == 'postgres':
-                    sel = f'EXTRACT({t.upper()} FROM {name:s})'
+                    sel = f'EXTRACT({t.upper():s} FROM {name:s})'
                 else:
                     raise Exception("Unreachable Error")
             elif t == 'week':
@@ -268,6 +275,14 @@ class UserOption:
                     sel = f'DATEADD({name:s}, (DATEDIFF({name:s}, 0, GETDATE()) / 7) * 7 + 7, 0)'
                 elif dialect == 'postgres':
                     sel = f'{name:s} - CAST(EXTRACT(DOW FROM {name:s}) AS INT) + 1'
+                else:
+                    raise Exception("Unreachable Error")
+            elif t in ['hour', 'weekday']:
+                if dialect == 'msss':
+                    sel = f'DATEPART({t.upper():s}, {name:s})'
+                elif dialect == 'postgres':
+                    tform = t if t != 'weekday' else 'dow'
+                    sel = f'EXTRACT({tform.upper():s} FROM {name:s}) AS INT) + 1'
                 else:
                     raise Exception("Unreachable Error")
             elif t == 'first':
@@ -333,6 +348,8 @@ def read_all_fields_from_yaml(filename, context, tbl_lkp, dim_lkp_where=None):
             transformations = payload[1] if has_transforms else [None]
             has_aggregations = (len(payload) > 2) and (payload[2] is not None)
             aggregations = payload[2] if has_aggregations else [None]
+            def_agg = None if None in aggregations else aggregations[0]
+
             if len(payload) > 3:
                 lkp_tbl, lkp_def, lkp_where = payload[3]
                 lkp_tbl = tbl_lkp[lkp_tbl]
@@ -346,7 +363,8 @@ def read_all_fields_from_yaml(filename, context, tbl_lkp, dim_lkp_where=None):
                                aggregations=aggregations,
                                dimension_table=lkp_tbl,
                                perform_lkp=lkp_def,
-                               dim_where=lkp_where)
+                               dim_where=lkp_where,
+                               default_aggregation=def_agg)
             all_fields[field_nm] = field
 
     return all_fields

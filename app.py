@@ -29,7 +29,7 @@ print("BEGIN")
 
 # --------- DEFINE INPUT ----------------------------------------------
 dropdown_sQuery = dcc.Dropdown(
-            id='dropdown-squery',
+            id='dropdown-squery', optionHeight=30,
             options=[{'label': k, 'value': i}
                      for i, (k, v) in enumerate(standard_queries.items())],
             style={'font-size': '13px'}, value=0)
@@ -100,11 +100,10 @@ When such a query is selected, it generates the SQL and propagates the specifica
 to the dropdowns below. The query can then be customised by adding in additional fields
 or changing existing ones.
 
-The 'primary variable' is the key quantity
-one wishes to aggregate over. (If no aggregation is desired, there is no difference
-between primary/secondary variables.) Any aggregation specified of the 'secondary
-variables' will be performed in a subquery, prior to the primary aggregation. While 
-a restricted subset of OMOP variables are populated at present, it is straightforward to
+The 'primary variable' defines the 'root table' of the query, and any aggregations to
+be performed will hit this table last. Aggregations specified in the 'secondary
+variables' will respect the logical structure of the DB, and may be performed in a
+subquery. Some examples of OMOP variables are given here, but it is straightforward to 
 add more.
 '''
 
