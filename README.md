@@ -5,14 +5,14 @@
 (**Note**: *Heroku is on an unpaid tier and may be asleep -- please refresh after 10-20s if the above badge is unavailable.*)
 
 ## Overview
-This project generates a subset of SQL for a given schema. It's been developed to support the [DECOVID](https://www.decovid.org/) project, and is currently being tested on data following the [OMOP schema](https://ohdsi.github.io/TheBookOfOhdsi/CommonDataModel.html). I make no claims of correctness or intuitiveness for more general schema. See the [`heroku`](www.heroku.com) deployment (above) for an example.
+This project generates a subset of SQL for a given schema. It's been developed to support the [DECOVID](https://www.decovid.org/) project, and is currently being tested on data following the [OMOP schema](https://ohdsi.github.io/TheBookOfOhdsi/CommonDataModel.html). I make no claims of correctness or intuitiveness for more general schema. See the [`heroku`](https://www.heroku.com) deployment (above) for an example.
 
 The intended use for the generated SQL is flexible aggregations for data visualisation as in e.g. dashboards. The high level 'language' or specification requires the user to specify:
 
-* one or more fields (from arbitrary tables), with one being specified as the *primary* field.
+* One or more fields (from arbitrary tables), with one being specified as the *primary* field.
     * The table of the primary field is considered the root of the query tree, and aggregations on this table will be performed last.
-* any transformations from a prespecified list (see the [`db_fields.yaml`](db_fields.yaml) file).
-* any aggregations from a prespecified list (see the [`db_fields.yaml`](db_fields.yaml) file).
+* Any transformations from a prespecified list (see the [`db_fields.yaml`](db_fields.yaml) file).
+* Any aggregations from a prespecified list (see the [`db_fields.yaml`](db_fields.yaml) file).
 * The query tree will be constructed automatically from the relationships between the tables specified (for current specification, see the [`decovid.py`](decovid.py) file).
 * Any aggregations required prior to the root table will occur within Common Table Expressions.
 
@@ -42,7 +42,7 @@ The Python framework [`Dash`](http://dash.plotly.com/) is used for the UI. I hav
 ### User specification
 * The user specifies `k` different fields, along with transformations, aggregations, and whether to look up a field in a dimension table.
 
-### App function
+### SQL generation
 * The tables corresponding to each field are extracted, and a query structure (required tables, intermediate tables, join keys) is calculated. This is a graph Steiner Tree problem for which heuristics are used. Shortcuts may be used as specified in the app setup where possible.
 * Working from the leaves up, tables are recursively transformed into subqueries are created wherever an aggregation needs to take place (except at the root node).
    * The purpose of the 'primary' variable in the app is to indirectly specify this root node. The query may not retain the same directions as present in the graph structure of the schema, and hence the root node is otherwise undefined.
