@@ -16,9 +16,14 @@ The intended use for the generated SQL is flexible aggregations for data visuali
 * The query tree will be constructed automatically from the relationships between the tables specified (for current specification, see the [`decovid.py`](decovid.py) file).
 * Any aggregations required prior to the root table will occur within Common Table Expressions.
 
-There is no guarantee of optimality of the query -- primary keys are used in order to calculate the joins, but no table constraints are used.
+### Caveats
+* There is no guarantee of optimality of the query -- primary keys are used in order to calculate the joins, but no table constraints are used.
+* The tool has only been tested on (part of) the OMOP schema.
+* The currently supported dialect is SQL Server, although most of the current syntax is fairly generic. Internally, some effort has been made to support Postgres too, although this is not yet fully plumbed in.
 
-For an example of its usage, see the animation at the bottom of the page.
+## Example usage
+
+![example-gif](https://i.imgur.com/2B2Gf90.gif)
 
 ## How does it work?
 
@@ -45,7 +50,3 @@ The Python framework [`Dash`](http://dash.plotly.com/) is used for the UI. I hav
 * The clauses (`SELECT`, `FROM`, `WHERE`, `GROUP BY`) within each subquery are generated, including any specified transformations.
 
 Currently very little customisation is possible for `WHERE` clauses as it is not yet of primary interest for this project.
-
-## Example usage
-
-![example-gif](https://i.imgur.com/2B2Gf90.gif)
